@@ -674,6 +674,9 @@
                 
                 this.loadNotes();
                 this.updateUI();
+                
+                // Устанавливаем прогресс на последний таймкод после загрузки заметок
+                this.setVideoProgressToLastNote();
             }
 
             handleSpeedChange(e) {
@@ -898,6 +901,23 @@
                 if (statusElement) {
                     statusElement.textContent = text;
                     statusElement.className = `save-status text-xs ${className}`;
+                }
+            }
+
+            setVideoProgressToLastNote() {
+                if (!this.currentNotes || this.currentNotes.length === 0) return;
+
+                // Находим заметку с максимальным временем (последнюю по таймкоду)
+                const lastNote = this.currentNotes.reduce((latest, note) => {
+                    return note.seconds > latest.seconds ? note : latest;
+                });
+
+                if (lastNote) {
+                    // Ждем, пока видео загрузится, затем устанавливаем время
+                    this.videoPlayer.addEventListener('loadedmetadata', () => {
+                        this.videoPlayer.currentTime = lastNote.seconds;
+                        this.showToast(`Переход к последней заметке: ${lastNote.timecode}`, 'info');
+                    }, { once: true });
                 }
             }
 
