@@ -322,7 +322,7 @@
                     <div class="grid grid-cols-1 gap-2 text-xs">
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Play/Pause</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Ctrl+Space</kbd>
+                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+p</kbd>
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Play/Pause</span>
@@ -334,15 +334,15 @@
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Добавить заметку</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Ctrl+Enter</kbd>
+                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+Enter</kbd>
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Перемотка назад (1 сек)</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Ctrl+←</kbd>
+                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+←</kbd>
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Перемотка вперед (1 сек)</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Ctrl+→</kbd>
+                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+→</kbd>
                         </div>
                         <div class="flex justify-between items-center">
                             <span class="text-gray-600">Добавить заметку (Enter)</span>
@@ -615,11 +615,10 @@
             }
 
             handleHotkeys(e) {
-                
                 // Перемотка с Ctrl + стрелки
                 if (e.ctrlKey || e.metaKey) {
                     switch(e.key) {
-                        case ' ':
+                        case 'p':
                             e.preventDefault();
                             e.stopPropagation();
                             this.togglePlayPause();
