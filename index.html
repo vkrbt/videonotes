@@ -521,11 +521,13 @@
             }
 
             handleHotkeys(e) {
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                // Проверяем, что фокус не на поле ввода заметок и не на видео
+                if (e.target === this.noteText || e.target === this.videoPlayer) return;
                 
                 switch(e.key) {
                     case ' ':
                         e.preventDefault();
+                        e.stopPropagation();
                         this.togglePlayPause();
                         break;
                     case 'n':
