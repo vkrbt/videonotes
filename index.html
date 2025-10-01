@@ -1249,22 +1249,25 @@
                     return;
                 }
 
+                // Сортируем заметки в хронологическом порядке для превью
+                const sortedNotes = filteredNotes.sort((a, b) => a.seconds - b.seconds);
+
                 const format = document.getElementById('exportFormat').value;
                 const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
                 
                 let preview = '';
                 switch(format) {
                     case 'csv':
-                        preview = this.generateCSVPreview(filteredNotes, includeMilliseconds);
+                        preview = this.generateCSVPreview(sortedNotes, includeMilliseconds);
                         break;
                     case 'json':
-                        preview = this.generateJSONPreview(filteredNotes, includeMilliseconds);
+                        preview = this.generateJSONPreview(sortedNotes, includeMilliseconds);
                         break;
                     case 'markdown':
-                        preview = this.generateMarkdownPreview(filteredNotes, includeMilliseconds);
+                        preview = this.generateMarkdownPreview(sortedNotes, includeMilliseconds);
                         break;
                     case 'txt':
-                        preview = this.generatePlainTextPreview(filteredNotes, includeMilliseconds);
+                        preview = this.generatePlainTextPreview(sortedNotes, includeMilliseconds);
                         break;
                 }
 
@@ -1345,26 +1348,29 @@
                 const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
                 const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
                 
+                // Сортируем заметки в хронологическом порядке (от старых к новым)
+                const sortedNotes = filteredNotes.sort((a, b) => a.seconds - b.seconds);
+                
                 let content, filename, mimeType;
                 
                 switch(format) {
                     case 'csv':
-                        content = this.exportToCSV(filteredNotes, includeMilliseconds);
+                        content = this.exportToCSV(sortedNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.csv`;
                         mimeType = 'text/csv';
                         break;
                     case 'json':
-                        content = this.exportToJSON(filteredNotes, includeMilliseconds);
+                        content = this.exportToJSON(sortedNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.json`;
                         mimeType = 'application/json';
                         break;
                     case 'markdown':
-                        content = this.exportToMarkdown(filteredNotes, includeMilliseconds);
+                        content = this.exportToMarkdown(sortedNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.md`;
                         mimeType = 'text/markdown';
                         break;
                     case 'txt':
-                        content = this.exportToPlainText(filteredNotes, includeMilliseconds);
+                        content = this.exportToPlainText(sortedNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.txt`;
                         mimeType = 'text/plain';
                         break;
