@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Notes App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Дополнительные стили для улучшения UX */
+        .video-container {
+            position: relative;
+            background: #000;
+        }
+        
+        .notes-panel {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+        
+        .note-item {
+            transition: all 0.2s ease;
+        }
+        
+        .note-item:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .timecode-link {
+            cursor: pointer;
+            color: #3b82f6;
+            text-decoration: underline;
+        }
+        
+        .timecode-link:hover {
+            color: #1d4ed8;
+        }
+        
+        .type-chip {
+            transition: all 0.2s ease;
+        }
+        
+        .type-chip.active {
+            background-color: #3b82f6 !important;
+            color: white !important;
+            border-color: #1d4ed8 !important;
+        }
+        
+        /* Цвета для типов заметок по позиции */
+        .type-0 {
+            background-color: #dcfce7;
+            color: #166534;
+            border-color: #86efac;
+        }
+        
+        .type-1 {
+            background-color: #dbeafe;
+            color: #1e40af;
+            border-color: #93c5fd;
+        }
+        
+        .type-2 {
+            background-color: #fef3c7;
+            color: #92400e;
+            border-color: #fcd34d;
+        }
+        
+        .type-3 {
+            background-color: #f3f4f6;
+            color: #374151;
+            border-color: #d1d5db;
+        }
+        
+        .type-4 {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border-color: #fca5a5;
+        }
+        
+        .type-5 {
+            background-color: #e0e7ff;
+            color: #3730a3;
+            border-color: #a5b4fc;
+        }
+        
+        .type-6 {
+            background-color: #f0fdf4;
+            color: #14532d;
+            border-color: #bbf7d0;
+        }
+        
+        .type-7 {
+            background-color: #fdf2f8;
+            color: #be185d;
+            border-color: #f9a8d4;
+        }
+        
+        .type-8 {
+            background-color: #ecfdf5;
+            color: #047857;
+            border-color: #6ee7b7;
+        }
+        
+        .type-9 {
+            background-color: #fefce8;
+            color: #a16207;
+            border-color: #fde047;
+        }
+        
+        .delete-btn {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .note-item:hover .delete-btn {
+            opacity: 1;
+        }
+        
+        .speed-display {
+            min-width: 3rem;
+            text-align: center;
+        }
+        
+        /* Анимации */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease;
+        }
+        
+        /* Стили для модального окна экспорта */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        /* Стили для тоста */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 16px;
+            min-width: 300px;
+            z-index: 1000;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+        
+        .toast.show {
+            transform: translateX(0);
+        }
+        
+        .toast-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .toast-message {
+            flex: 1;
+            margin-right: 12px;
+        }
+        
+        .toast-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .toast-btn {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .toast-restore {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+        }
+        
+        .toast-restore:hover {
+            background-color: #2563eb;
+        }
+        
+        .toast-dismiss {
+            background-color: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #d1d5db;
+        }
+        
+        .toast-dismiss:hover {
+            background-color: #e5e7eb;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Заголовок -->
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Video Notes App</h1>
+            <p class="text-gray-600">Загрузите видео и создавайте таймкодированные заметки</p>
+        </div>
+
+        <!-- Блок выбора видео -->
+        <div class="mb-6">
+            <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">
+                Выберите видеофайл
+            </label>
+            <input 
+                type="file" 
+                id="videoFile" 
+                accept="video/*" 
+                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            >
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Видеоплеер -->
+            <div class="lg:col-span-2">
+                <div class="video-container rounded-lg overflow-hidden shadow-lg">
+                    <video 
+                        id="videoPlayer" 
+                        controls 
+                        class="w-full h-auto"
+                        style="min-height: 300px;"
+                    >
+                        Ваш браузер не поддерживает воспроизведение видео.
+                    </video>
+                </div>
+                
+                <!-- Контрол скорости -->
+                <div class="mt-4 flex items-center space-x-4">
+                    <label for="speedControl" class="text-sm font-medium text-gray-700">
+                        Скорость:
+                    </label>
+                    <input 
+                        type="range" 
+                        id="speedControl" 
+                        min="0.25" 
+                        max="3.0" 
+                        step="0.1" 
+                        value="1.0"
+                        class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    >
+                    <span id="speedDisplay" class="speed-display text-sm font-mono bg-gray-100 px-2 py-1 rounded">
+                        1.0×
+                    </span>
+                </div>
+            </div>
+
+            <!-- Панель заметок -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-lg p-4 notes-panel">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Заметки</h3>
+                    
+                    <!-- Типы заметок -->
+                    <div class="mb-4">
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            <div id="noteTypes" class="flex flex-wrap gap-2">
+                                <!-- Типы будут добавлены динамически -->
+                            </div>
+                            <button 
+                                id="addTypeBtn" 
+                                class="px-3 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200"
+                                title="Добавить тип"
+                            >
+                                + Добавить
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Форма новой заметки -->
+                    <div class="mb-4">
+                        <textarea 
+                            id="noteText" 
+                            placeholder="Введите текст заметки..."
+                            rows="3"
+                            class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        ></textarea>
+                        <div class="mt-2 flex justify-between items-center">
+                            <button 
+                                id="addNoteBtn" 
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled
+                            >
+                                Добавить заметку
+                            </button>
+                            <button 
+                                id="exportBtn" 
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled
+                            >
+                                Экспорт
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Список заметок -->
+                    <div id="notesList" class="space-y-2">
+                        <p class="text-gray-500 text-sm text-center py-4">
+                            Загрузите видео, чтобы начать создавать заметки
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно экспорта -->
+    <div id="exportModal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl modal-content w-full max-w-md">
+            <div class="p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Экспорт заметок</h3>
+                
+                <!-- Выбор типов -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Выберите типы заметок:
+                    </label>
+                    <div id="exportTypeCheckboxes" class="space-y-2">
+                        <!-- Чекбоксы будут добавлены динамически -->
+                    </div>
+                    <label class="flex items-center mt-2">
+                        <input type="checkbox" id="exportAllTypes" class="mr-2">
+                        <span class="text-sm text-gray-700">Все типы</span>
+                    </label>
+                </div>
+
+                <!-- Выбор формата -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Формат экспорта:
+                    </label>
+                    <select id="exportFormat" class="w-full p-2 border border-gray-300 rounded-lg">
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="txt">Plain Text</option>
+                    </select>
+                </div>
+
+                <!-- Кнопки -->
+                <div class="flex justify-end space-x-3">
+                    <button 
+                        id="cancelExport" 
+                        class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                        Отмена
+                    </button>
+                    <button 
+                        id="confirmExport" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                        Экспортировать
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно добавления типа -->
+    <div id="addTypeModal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm">
+            <div class="p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Добавить тип заметки</h3>
+                <input 
+                    type="text" 
+                    id="newTypeName" 
+                    placeholder="Название типа"
+                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                <div class="flex justify-end space-x-3 mt-4">
+                    <button 
+                        id="cancelAddType" 
+                        class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                        Отмена
+                    </button>
+                    <button 
+                        id="confirmAddType" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                        Добавить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Тосты -->
+    <div id="toastContainer"></div>
+
+    <script>
+        class VideoNotesApp {
+            constructor() {
+                this.videoPlayer = document.getElementById('videoPlayer');
+                this.videoFileInput = document.getElementById('videoFile');
+                this.speedControl = document.getElementById('speedControl');
+                this.speedDisplay = document.getElementById('speedDisplay');
+                this.noteText = document.getElementById('noteText');
+                this.addNoteBtn = document.getElementById('addNoteBtn');
+                this.exportBtn = document.getElementById('exportBtn');
+                this.notesList = document.getElementById('notesList');
+                this.noteTypes = document.getElementById('noteTypes');
+                this.addTypeBtn = document.getElementById('addTypeBtn');
+                
+                // Модальные окна
+                this.exportModal = document.getElementById('exportModal');
+                this.addTypeModal = document.getElementById('addTypeModal');
+                
+                this.currentVideoFileName = null;
+                this.currentNotes = [];
+                this.availableTypes = ['Правка', 'Таймкод', 'Хук', 'Другое' ];
+                this.selectedType = 'Правка';
+                this.isVideoPaused = false;
+                this.lastDeletedNote = null;
+                this.toastTimeout = null;
+                
+                this.init();
+            }
+
+            init() {
+                this.loadTypes();
+                this.setupEventListeners();
+                this.updateUI();
+            }
+
+            setupEventListeners() {
+                // Загрузка видео
+                this.videoFileInput.addEventListener('change', (e) => this.handleVideoLoad(e));
+                
+                // Контрол скорости
+                this.speedControl.addEventListener('input', (e) => this.handleSpeedChange(e));
+                
+                // Создание заметки
+                this.noteText.addEventListener('focus', () => this.pauseVideo());
+                this.noteText.addEventListener('input', () => this.updateAddButton());
+                this.noteText.addEventListener('keydown', (e) => this.handleNoteTextKeydown(e));
+                this.addNoteBtn.addEventListener('click', () => this.addNote());
+                
+                // Экспорт
+                this.exportBtn.addEventListener('click', () => this.showExportModal());
+                
+                // Управление типами
+                this.addTypeBtn.addEventListener('click', () => this.showAddTypeModal());
+                
+                // Модальные окна
+                this.setupModalEventListeners();
+                
+                // Горячие клавиши
+                document.addEventListener('keydown', (e) => this.handleHotkeys(e));
+            }
+
+            setupModalEventListeners() {
+                // Экспорт модал
+                document.getElementById('cancelExport').addEventListener('click', () => this.hideExportModal());
+                document.getElementById('confirmExport').addEventListener('click', () => this.exportNotes());
+                document.getElementById('exportAllTypes').addEventListener('change', (e) => this.toggleAllExportTypes(e));
+                
+                // Добавление типа модал
+                document.getElementById('cancelAddType').addEventListener('click', () => this.hideAddTypeModal());
+                document.getElementById('confirmAddType').addEventListener('click', () => this.addNewType());
+                
+                // Закрытие модалов по клику вне области
+                this.exportModal.addEventListener('click', (e) => {
+                    if (e.target === this.exportModal) this.hideExportModal();
+                });
+                this.addTypeModal.addEventListener('click', (e) => {
+                    if (e.target === this.addTypeModal) this.hideAddTypeModal();
+                });
+            }
+
+            handleNoteTextKeydown(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!this.addNoteBtn.disabled) {
+                        this.addNote();
+                    }
+                }
+            }
+
+            handleHotkeys(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                
+                switch(e.key) {
+                    case ' ':
+                        e.preventDefault();
+                        this.togglePlayPause();
+                        break;
+                    case 'n':
+                        e.preventDefault();
+                        this.noteText.focus();
+                        break;
+                    case 'Enter':
+                        if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            if (!this.addNoteBtn.disabled) {
+                                this.addNote();
+                            }
+                        }
+                        break;
+                }
+            }
+
+            handleVideoLoad(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // Предупреждение о смене видео
+                if (this.currentVideoFileName && this.currentNotes.length > 0) {
+                    if (!confirm('При смене видео текущие заметки будут сохранены. Продолжить?')) {
+                        this.videoFileInput.value = '';
+                        return;
+                    }
+                }
+
+                this.currentVideoFileName = file.name;
+                const videoURL = URL.createObjectURL(file);
+                this.videoPlayer.src = videoURL;
+                
+                this.loadNotes();
+                this.updateUI();
+            }
+
+            handleSpeedChange(e) {
+                const speed = parseFloat(e.target.value);
+                this.videoPlayer.playbackRate = speed;
+                this.speedDisplay.textContent = `${speed.toFixed(1)}×`;
+            }
+
+            pauseVideo() {
+                if (!this.videoPlayer.paused) {
+                    this.videoPlayer.pause();
+                    this.isVideoPaused = true;
+                }
+            }
+
+            togglePlayPause() {
+                if (this.videoPlayer.paused) {
+                    this.videoPlayer.play();
+                    this.isVideoPaused = false;
+                } else {
+                    this.videoPlayer.pause();
+                    this.isVideoPaused = true;
+                }
+            }
+
+            updateAddButton() {
+                const hasText = this.noteText.value.trim().length > 0;
+                this.addNoteBtn.disabled = !hasText || !this.currentVideoFileName;
+            }
+
+            addNote() {
+                const text = this.noteText.value.trim();
+                if (!text || !this.currentVideoFileName) return;
+
+                const currentTime = this.videoPlayer.currentTime;
+                const timecode = this.formatTimecode(currentTime);
+                
+                const note = {
+                    id: this.generateId(),
+                    seconds: currentTime,
+                    timecode: timecode,
+                    type: this.selectedType,
+                    text: text
+                };
+
+                this.currentNotes.push(note);
+                this.currentNotes.sort((a, b) => b.seconds - a.seconds); // Сортировка по убыванию времени
+                
+                this.saveNotes();
+                this.renderNotes();
+                this.noteText.value = '';
+                this.updateAddButton();
+                
+                // Продолжаем воспроизведение видео
+                if (this.isVideoPaused) {
+                    this.videoPlayer.play();
+                    this.isVideoPaused = false;
+                }
+            }
+
+            formatTimecode(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                const milliseconds = Math.floor((seconds % 1) * 1000);
+                
+                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+            }
+
+            generateId() {
+                return Date.now().toString(36) + Math.random().toString(36).substr(2);
+            }
+
+            renderNotes() {
+                if (this.currentNotes.length === 0) {
+                    this.notesList.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">Нет заметок</p>';
+                    return;
+                }
+
+                const notesHTML = this.currentNotes.map(note => `
+                    <div class="note-item p-3 border border-gray-200 rounded-lg fade-in">
+                        <div class="flex items-start justify-between mb-2">
+                            <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
+                                ${note.timecode}
+                            </span>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs px-2 py-1 rounded-full type-${this.getTypeClass(note.type)}">
+                                    ${note.type}
+                                </span>
+                                <button 
+                                    class="delete-btn text-red-500 hover:text-red-700 text-xs px-1" 
+                                    data-note-id="${note.id}"
+                                    title="Удалить заметку"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-700">${this.escapeHtml(note.text)}</p>
+                    </div>
+                `).join('');
+
+                this.notesList.innerHTML = notesHTML;
+
+                // Добавляем обработчики кликов по таймкодам
+                this.notesList.querySelectorAll('.timecode-link').forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        const seconds = parseFloat(e.target.dataset.seconds);
+                        this.videoPlayer.currentTime = seconds;
+                        this.videoPlayer.play();
+                    });
+                });
+
+                // Добавляем обработчики удаления заметок
+                this.notesList.querySelectorAll('.delete-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const noteId = e.target.dataset.noteId;
+                        this.deleteNote(noteId);
+                    });
+                });
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            getTypeClass(type) {
+                // Получаем индекс типа в массиве availableTypes
+                const typeIndex = this.availableTypes.indexOf(type);
+                return typeIndex >= 0 ? typeIndex : 0; // Если тип не найден, используем первый цвет
+            }
+
+            deleteNote(noteId) {
+                const noteIndex = this.currentNotes.findIndex(note => note.id === noteId);
+                if (noteIndex === -1) return;
+
+                // Сохраняем удаляемую заметку для возможного восстановления
+                this.lastDeletedNote = this.currentNotes[noteIndex];
+                
+                // Удаляем заметку
+                this.currentNotes.splice(noteIndex, 1);
+                this.saveNotes();
+                this.renderNotes();
+                
+                // Показываем тост с возможностью восстановления
+                this.showRestoreToast();
+            }
+
+            showRestoreToast() {
+                // Удаляем предыдущий тост, если есть
+                this.hideToast();
+                
+                const toastContainer = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = 'toast';
+                toast.innerHTML = `
+                    <div class="toast-content">
+                        <div class="toast-message">
+                            <strong>Заметка удалена</strong><br>
+                            <span class="text-sm text-gray-600">${this.lastDeletedNote.type}: ${this.lastDeletedNote.text.substring(0, 50)}${this.lastDeletedNote.text.length > 50 ? '...' : ''}</span>
+                        </div>
+                        <div class="toast-actions">
+                            <button class="toast-btn toast-restore" onclick="app.restoreLastDeletedNote()">
+                                Восстановить
+                            </button>
+                            <button class="toast-btn toast-dismiss" onclick="app.hideToast()">
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                toastContainer.appendChild(toast);
+                
+                // Показываем тост с анимацией
+                setTimeout(() => toast.classList.add('show'), 100);
+                
+                // Автоматически скрываем через 5 секунд
+                this.toastTimeout = setTimeout(() => {
+                    this.hideToast();
+                }, 5000);
+            }
+
+            hideToast() {
+                const toastContainer = document.getElementById('toastContainer');
+                const toast = toastContainer.querySelector('.toast');
+                if (toast) {
+                    toast.classList.remove('show');
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    }, 300);
+                }
+                
+                if (this.toastTimeout) {
+                    clearTimeout(this.toastTimeout);
+                    this.toastTimeout = null;
+                }
+            }
+
+            restoreLastDeletedNote() {
+                if (this.lastDeletedNote) {
+                    // Восстанавливаем заметку в правильном порядке по времени (новые сверху)
+                    this.currentNotes.push(this.lastDeletedNote);
+                    this.currentNotes.sort((a, b) => b.seconds - a.seconds);
+                    
+                    this.saveNotes();
+                    this.renderNotes();
+                    this.hideToast();
+                    
+                    // Показываем краткое уведомление о восстановлении
+                    this.showToast('Заметка восстановлена', 'success');
+                }
+            }
+
+            showToast(message, type = 'info') {
+                this.hideToast();
+                
+                const toastContainer = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = 'toast';
+                
+                const typeClass = type === 'success' ? 'toast-restore' : 'toast-dismiss';
+                
+                toast.innerHTML = `
+                    <div class="toast-content">
+                        <div class="toast-message">
+                            ${message}
+                        </div>
+                        <div class="toast-actions">
+                            <button class="toast-btn ${typeClass}" onclick="app.hideToast()">
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                toastContainer.appendChild(toast);
+                setTimeout(() => toast.classList.add('show'), 100);
+                
+                // Автоматически скрываем через 3 секунды
+                this.toastTimeout = setTimeout(() => {
+                    this.hideToast();
+                }, 3000);
+            }
+
+            loadTypes() {
+                const savedTypes = localStorage.getItem('notes::types');
+                if (savedTypes) {
+                    this.availableTypes = JSON.parse(savedTypes);
+                }
+                this.renderTypes();
+            }
+
+            saveTypes() {
+                localStorage.setItem('notes::types', JSON.stringify(this.availableTypes));
+            }
+
+            renderTypes() {
+                this.noteTypes.innerHTML = this.availableTypes.map(type => `
+                    <div class="flex items-center group">
+                        <button 
+                            class="type-chip px-3 py-1 text-sm rounded-full border type-${this.getTypeClass(type)} hover:opacity-80 ${type === this.selectedType ? 'active' : ''}"
+                            data-type="${type}"
+                        >
+                            ${type}
+                        </button>
+                        ${this.availableTypes.length > 1 ? `
+                            <button 
+                                class="ml-1 text-red-500 hover:text-red-700 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                data-type="${type}"
+                                title="Удалить тип"
+                            >
+                                ✕
+                            </button>
+                        ` : ''}
+                    </div>
+                `).join('');
+
+                // Добавляем обработчики выбора типа
+                this.noteTypes.querySelectorAll('.type-chip').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        this.selectedType = e.target.dataset.type;
+                        this.renderTypes();
+                    });
+                });
+
+                // Добавляем обработчики удаления типа
+                this.noteTypes.querySelectorAll('button[title="Удалить тип"]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const typeToRemove = e.target.dataset.type;
+                        this.removeType(typeToRemove);
+                    });
+                });
+            }
+
+            showAddTypeModal() {
+                this.addTypeModal.classList.remove('hidden');
+                document.getElementById('newTypeName').focus();
+            }
+
+            hideAddTypeModal() {
+                this.addTypeModal.classList.add('hidden');
+                document.getElementById('newTypeName').value = '';
+            }
+
+            addNewType() {
+                const typeName = document.getElementById('newTypeName').value.trim();
+                if (!typeName || this.availableTypes.includes(typeName)) return;
+
+                this.availableTypes.push(typeName);
+                this.selectedType = typeName;
+                this.saveTypes();
+                this.renderTypes();
+                this.hideAddTypeModal();
+            }
+
+            removeType(typeToRemove) {
+                if (this.availableTypes.length <= 1) {
+                    alert('Нельзя удалить последний тип заметки');
+                    return;
+                }
+
+                if (confirm(`Удалить тип "${typeToRemove}"? Все заметки этого типа будут переведены в первый доступный тип.`)) {
+                    // Находим индекс удаляемого типа
+                    const typeIndex = this.availableTypes.indexOf(typeToRemove);
+                    if (typeIndex === -1) return;
+
+                    // Удаляем тип из списка
+                    this.availableTypes.splice(typeIndex, 1);
+
+                    // Если удаляемый тип был выбран, выбираем первый доступный
+                    if (this.selectedType === typeToRemove) {
+                        this.selectedType = this.availableTypes[0];
+                    }
+
+                    // Обновляем все заметки этого типа на первый доступный тип
+                    this.currentNotes.forEach(note => {
+                        if (note.type === typeToRemove) {
+                            note.type = this.availableTypes[0];
+                        }
+                    });
+
+                    this.saveTypes();
+                    this.saveNotes();
+                    this.renderTypes();
+                    this.renderNotes();
+                }
+            }
+
+            loadNotes() {
+                if (!this.currentVideoFileName) {
+                    this.currentNotes = [];
+                    return;
+                }
+
+                const key = `notes::${this.currentVideoFileName}`;
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    const data = JSON.parse(saved);
+                    this.currentNotes = data.notes || [];
+                } else {
+                    this.currentNotes = [];
+                }
+                this.renderNotes();
+            }
+
+            saveNotes() {
+                if (!this.currentVideoFileName) return;
+
+                const key = `notes::${this.currentVideoFileName}`;
+                const data = {
+                    videoFileName: this.currentVideoFileName,
+                    notes: this.currentNotes
+                };
+                localStorage.setItem(key, JSON.stringify(data));
+            }
+
+            showExportModal() {
+                this.renderExportTypeCheckboxes();
+                this.exportModal.classList.remove('hidden');
+            }
+
+            hideExportModal() {
+                this.exportModal.classList.add('hidden');
+            }
+
+            renderExportTypeCheckboxes() {
+                const container = document.getElementById('exportTypeCheckboxes');
+                container.innerHTML = this.availableTypes.map(type => `
+                    <label class="flex items-center">
+                        <input type="checkbox" class="mr-2" value="${type}" checked>
+                        <span class="text-sm text-gray-700">${type}</span>
+                    </label>
+                `).join('');
+            }
+
+            toggleAllExportTypes(e) {
+                const checkboxes = document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = e.target.checked;
+                });
+            }
+
+            exportNotes() {
+                const selectedTypes = Array.from(document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]:checked'))
+                    .map(cb => cb.value);
+                
+                if (selectedTypes.length === 0) {
+                    alert('Выберите хотя бы один тип заметок для экспорта');
+                    return;
+                }
+
+                const format = document.getElementById('exportFormat').value;
+                const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
+                
+                let content, filename, mimeType;
+                
+                switch(format) {
+                    case 'csv':
+                        content = this.exportToCSV(filteredNotes);
+                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.csv`;
+                        mimeType = 'text/csv';
+                        break;
+                    case 'json':
+                        content = this.exportToJSON(filteredNotes);
+                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.json`;
+                        mimeType = 'application/json';
+                        break;
+                    case 'markdown':
+                        content = this.exportToMarkdown(filteredNotes);
+                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.md`;
+                        mimeType = 'text/markdown';
+                        break;
+                    case 'txt':
+                        content = this.exportToPlainText(filteredNotes);
+                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.txt`;
+                        mimeType = 'text/plain';
+                        break;
+                }
+
+                this.downloadFile(content, filename, mimeType);
+                this.hideExportModal();
+            }
+
+            exportToCSV(notes) {
+                const headers = ['timecode', 'seconds', 'type', 'text'];
+                const csvContent = [
+                    headers.join(','),
+                    ...notes.map(note => [
+                        `"${note.timecode}"`,
+                        note.seconds,
+                        `"${note.type}"`,
+                        `"${note.text.replace(/"/g, '""')}"`
+                    ].join(','))
+                ].join('\n');
+                return csvContent;
+            }
+
+            exportToJSON(notes) {
+                return JSON.stringify(notes, null, 2);
+            }
+
+            exportToMarkdown(notes) {
+                const content = [
+                    `# Notes — ${this.currentVideoFileName}`,
+                    '',
+                    ...notes.map(note => `- **${note.timecode}** *(${note.type})* — ${note.text}`)
+                ].join('\n');
+                return content;
+            }
+
+            exportToPlainText(notes) {
+                return notes.map(note => `[${note.timecode}] (${note.type}) ${note.text}`).join('\n');
+            }
+
+            getTimestamp() {
+                const now = new Date();
+                return now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+            }
+
+            downloadFile(content, filename, mimeType) {
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            updateUI() {
+                const hasVideo = !!this.currentVideoFileName;
+                this.addNoteBtn.disabled = !hasVideo || !this.noteText.value.trim();
+                this.exportBtn.disabled = !hasVideo || this.currentNotes.length === 0;
+                this.noteText.disabled = !hasVideo;
+                this.speedControl.disabled = !hasVideo;
+            }
+        }
+
+        // Инициализация приложения
+        let app;
+        document.addEventListener('DOMContentLoaded', () => {
+            app = new VideoNotesApp();
+        });
+    </script>
+</body>
+</html>
