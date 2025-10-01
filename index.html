@@ -784,15 +784,20 @@
                 }
 
                 const notesHTML = this.currentNotes.map(note => `
-                    <div class="note-item p-3 border border-gray-200 rounded-lg fade-in group" data-note-id="${note.id}">
+                    <div class="note-item p-3 bg-gray-100 rounded-lg fade-in group" data-note-id="${note.id}">
                         <div class="flex items-start justify-between mb-2">
                             <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
                                 ${note.timecode}
                             </span>
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs px-2 py-1 rounded-full type-${this.getTypeClass(note.type)}">
-                                    ${note.type}
-                                </span>
+                                <select 
+                                    class="note-type-select text-xs px-2 py-1 rounded-full border-0 focus:ring-2 focus:ring-blue-500 type-${this.getTypeClass(note.type)}"
+                                    data-note-id="${note.id}"
+                                >
+                                    ${this.availableTypes.map(type => 
+                                        `<option value="${type}" ${type === note.type ? 'selected' : ''}>${type}</option>`
+                                    ).join('')}
+                                </select>
                                 <button 
                                     class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
                                     data-note-id="${note.id}"
@@ -804,7 +809,7 @@
                         </div>
                         <div class="note-content">
                             <textarea 
-                                class="note-text-edit w-full p-2 text-sm border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 rows="2"
                                 data-note-id="${note.id}"
                                 placeholder="Введите текст заметки..."
@@ -841,6 +846,15 @@
                     textarea.addEventListener('input', (e) => {
                         const noteId = e.target.dataset.noteId;
                         this.debouncedSaveNote(noteId);
+                    });
+                });
+
+                // Добавляем обработчики изменения типа заметки
+                this.notesList.querySelectorAll('.note-type-select').forEach(select => {
+                    select.addEventListener('change', (e) => {
+                        const noteId = e.target.dataset.noteId;
+                        const newType = e.target.value;
+                        this.changeNoteType(noteId, newType);
                     });
                 });
             }
@@ -913,6 +927,27 @@
                 if (statusElement) {
                     statusElement.textContent = text;
                     statusElement.className = `save-status text-xs ${className}`;
+                }
+            }
+
+            changeNoteType(noteId, newType) {
+                // Находим заметку в массиве
+                const note = this.currentNotes.find(n => n.id === noteId);
+                if (note) {
+                    note.type = newType;
+                    this.saveNotes();
+                    
+                    // Обновляем стиль селекта
+                    const select = this.notesList.querySelector(`select[data-note-id="${noteId}"]`);
+                    if (select) {
+                        // Удаляем старые классы типа
+                        select.className = select.className.replace(/type-\d+/g, '');
+                        // Добавляем новый класс типа
+                        select.classList.add(`type-${this.getTypeClass(newType)}`);
+                    }
+                    
+                    // Показываем краткое уведомление
+                    this.showToast(`Тип изменен на: ${newType}`, 'info');
                 }
             }
 
@@ -1026,10 +1061,10 @@
                 toastContainer.appendChild(toast);
                 setTimeout(() => toast.classList.add('show'), 100);
                 
-                // Автоматически скрываем через 3 секунды
+                // Автоматически скрываем через 5 секунд
                 this.toastTimeout = setTimeout(() => {
                     this.hideToast();
-                }, 3000);
+                }, 5000);
             }
 
             loadTypes() {
