@@ -258,6 +258,24 @@
                         1.0×
                     </span>
                 </div>
+                
+                <!-- Переключатель автопаузы -->
+                <div class="mt-3 flex items-center space-x-3">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            id="autoPauseToggle" 
+                            checked
+                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                        >
+                        <span class="text-sm font-medium text-gray-700">
+                            Автопауза при вводе
+                        </span>
+                    </label>
+                    <span id="autoPauseStatus" class="text-xs text-green-600 font-medium">
+                        Включено
+                    </span>
+                </div>
             </div>
 
             <!-- Панель заметок -->
@@ -409,6 +427,8 @@
                 this.videoFileInput = document.getElementById('videoFile');
                 this.speedControl = document.getElementById('speedControl');
                 this.speedDisplay = document.getElementById('speedDisplay');
+                this.autoPauseToggle = document.getElementById('autoPauseToggle');
+                this.autoPauseStatus = document.getElementById('autoPauseStatus');
                 this.noteText = document.getElementById('noteText');
                 this.addNoteBtn = document.getElementById('addNoteBtn');
                 this.exportBtn = document.getElementById('exportBtn');
@@ -427,6 +447,7 @@
                 this.isVideoPaused = false;
                 this.lastDeletedNote = null;
                 this.toastTimeout = null;
+                this.autoPauseEnabled = true;
                 
                 this.init();
             }
@@ -434,6 +455,7 @@
             init() {
                 this.loadTypes();
                 this.setupEventListeners();
+                this.updateAutoPauseStatus();
                 this.updateUI();
             }
 
@@ -444,9 +466,16 @@
                 // Контрол скорости
                 this.speedControl.addEventListener('input', (e) => this.handleSpeedChange(e));
                 
+                // Переключатель автопаузы
+                this.autoPauseToggle.addEventListener('change', (e) => this.handleAutoPauseToggle(e));
+                
                 // Создание заметки
-                this.noteText.addEventListener('focus', () => this.pauseVideo());
-                this.noteText.addEventListener('input', () => this.updateAddButton());
+                this.noteText.addEventListener('input', (e) => {
+                    if (this.autoPauseEnabled) {
+                        this.pauseVideo();
+                    }
+                    this.updateAddButton();
+                });
                 this.noteText.addEventListener('keydown', (e) => this.handleNoteTextKeydown(e));
                 this.addNoteBtn.addEventListener('click', () => this.addNote());
                 
@@ -538,6 +567,21 @@
                 const speed = parseFloat(e.target.value);
                 this.videoPlayer.playbackRate = speed;
                 this.speedDisplay.textContent = `${speed.toFixed(1)}×`;
+            }
+
+            handleAutoPauseToggle(e) {
+                this.autoPauseEnabled = e.target.checked;
+                this.updateAutoPauseStatus();
+            }
+
+            updateAutoPauseStatus() {
+                if (this.autoPauseEnabled) {
+                    this.autoPauseStatus.textContent = 'Включено';
+                    this.autoPauseStatus.className = 'text-xs text-green-600 font-medium';
+                } else {
+                    this.autoPauseStatus.textContent = 'Выключено';
+                    this.autoPauseStatus.className = 'text-xs text-red-600 font-medium';
+                }
             }
 
             pauseVideo() {
