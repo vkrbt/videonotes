@@ -357,7 +357,7 @@
                 </div>
 
                 <!-- Выбор формата -->
-                <div class="mb-6">
+                <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">
                         Формат экспорта:
                     </label>
@@ -367,6 +367,24 @@
                         <option value="markdown">Markdown</option>
                         <option value="txt">Plain Text</option>
                     </select>
+                </div>
+
+                <!-- Настройки экспорта -->
+                <div class="mb-4">
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" id="includeMilliseconds" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                        <span class="text-sm text-gray-700">Включить миллисекунды в таймкоды</span>
+                    </label>
+                </div>
+
+                <!-- Превью экспорта -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Превью:
+                    </label>
+                    <div id="exportPreview" class="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono max-h-40 overflow-y-auto">
+                        Выберите типы заметок для просмотра превью
+                    </div>
                 </div>
 
                 <!-- Кнопки -->
@@ -497,6 +515,8 @@
                 document.getElementById('cancelExport').addEventListener('click', () => this.hideExportModal());
                 document.getElementById('confirmExport').addEventListener('click', () => this.exportNotes());
                 document.getElementById('exportAllTypes').addEventListener('change', (e) => this.toggleAllExportTypes(e));
+                document.getElementById('exportFormat').addEventListener('change', () => this.updateExportPreview());
+                document.getElementById('includeMilliseconds').addEventListener('change', () => this.updateExportPreview());
                 
                 // Добавление типа модал
                 document.getElementById('cancelAddType').addEventListener('click', () => this.hideAddTypeModal());
@@ -964,6 +984,7 @@
             showExportModal() {
                 this.renderExportTypeCheckboxes();
                 this.exportModal.classList.remove('hidden');
+                this.updateExportPreview();
             }
 
             hideExportModal() {
@@ -974,10 +995,15 @@
                 const container = document.getElementById('exportTypeCheckboxes');
                 container.innerHTML = this.availableTypes.map(type => `
                     <label class="flex items-center">
-                        <input type="checkbox" class="mr-2" value="${type}" checked>
+                        <input type="checkbox" class="mr-2 export-type-checkbox" value="${type}" checked>
                         <span class="text-sm text-gray-700">${type}</span>
                     </label>
                 `).join('');
+
+                // Добавляем обработчики для обновления превью
+                container.querySelectorAll('.export-type-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', () => this.updateExportPreview());
+                });
             }
 
             toggleAllExportTypes(e) {
@@ -985,6 +1011,106 @@
                 checkboxes.forEach(checkbox => {
                     checkbox.checked = e.target.checked;
                 });
+                this.updateExportPreview();
+            }
+
+            updateExportPreview() {
+                const selectedTypes = Array.from(document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]:checked'))
+                    .map(cb => cb.value);
+                
+                if (selectedTypes.length === 0) {
+                    document.getElementById('exportPreview').textContent = 'Выберите хотя бы один тип заметок';
+                    return;
+                }
+
+                const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
+                
+                if (filteredNotes.length === 0) {
+                    document.getElementById('exportPreview').textContent = 'Нет заметок выбранных типов';
+                    return;
+                }
+
+                const format = document.getElementById('exportFormat').value;
+                const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
+                
+                let preview = '';
+                switch(format) {
+                    case 'csv':
+                        preview = this.generateCSVPreview(filteredNotes, includeMilliseconds);
+                        break;
+                    case 'json':
+                        preview = this.generateJSONPreview(filteredNotes, includeMilliseconds);
+                        break;
+                    case 'markdown':
+                        preview = this.generateMarkdownPreview(filteredNotes, includeMilliseconds);
+                        break;
+                    case 'txt':
+                        preview = this.generatePlainTextPreview(filteredNotes, includeMilliseconds);
+                        break;
+                }
+
+                document.getElementById('exportPreview').textContent = preview;
+            }
+
+            formatTimecodeForExport(seconds, includeMilliseconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = Math.floor(seconds % 60);
+                const milliseconds = Math.floor((seconds % 1) * 1000);
+                
+                if (includeMilliseconds) {
+                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+                } else {
+                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+            }
+
+            generateCSVPreview(notes, includeMilliseconds) {
+                const headers = ['timecode', 'seconds', 'type', 'text'];
+                const rows = notes.slice(0, 3).map(note => [
+                    `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
+                    note.seconds,
+                    `"${note.type}"`,
+                    `"${note.text.replace(/"/g, '""')}"`
+                ]);
+                
+                return [headers.join(','), ...rows.map(row => row.join(','))].join('\n') + 
+                       (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
+            }
+
+            generateJSONPreview(notes, includeMilliseconds) {
+                const previewNotes = notes.slice(0, 3).map(note => ({
+                    id: note.id,
+                    timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
+                    seconds: note.seconds,
+                    type: note.type,
+                    text: note.text
+                }));
+                
+                return JSON.stringify(previewNotes, null, 2) + 
+                       (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
+            }
+
+            generateMarkdownPreview(notes, includeMilliseconds) {
+                const preview = [
+                    `# Notes — ${this.currentVideoFileName}`,
+                    '',
+                    ...notes.slice(0, 3).map(note => 
+                        `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`
+                    )
+                ];
+                
+                return preview.join('\n') + 
+                       (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
+            }
+
+            generatePlainTextPreview(notes, includeMilliseconds) {
+                const preview = notes.slice(0, 3).map(note => 
+                    `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`
+                );
+                
+                return preview.join('\n') + 
+                       (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
             }
 
             exportNotes() {
@@ -997,28 +1123,29 @@
                 }
 
                 const format = document.getElementById('exportFormat').value;
+                const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
                 const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
                 
                 let content, filename, mimeType;
                 
                 switch(format) {
                     case 'csv':
-                        content = this.exportToCSV(filteredNotes);
+                        content = this.exportToCSV(filteredNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.csv`;
                         mimeType = 'text/csv';
                         break;
                     case 'json':
-                        content = this.exportToJSON(filteredNotes);
+                        content = this.exportToJSON(filteredNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.json`;
                         mimeType = 'application/json';
                         break;
                     case 'markdown':
-                        content = this.exportToMarkdown(filteredNotes);
+                        content = this.exportToMarkdown(filteredNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.md`;
                         mimeType = 'text/markdown';
                         break;
                     case 'txt':
-                        content = this.exportToPlainText(filteredNotes);
+                        content = this.exportToPlainText(filteredNotes, includeMilliseconds);
                         filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.txt`;
                         mimeType = 'text/plain';
                         break;
@@ -1028,12 +1155,12 @@
                 this.hideExportModal();
             }
 
-            exportToCSV(notes) {
+            exportToCSV(notes, includeMilliseconds = true) {
                 const headers = ['timecode', 'seconds', 'type', 'text'];
                 const csvContent = [
                     headers.join(','),
                     ...notes.map(note => [
-                        `"${note.timecode}"`,
+                        `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
                         note.seconds,
                         `"${note.type}"`,
                         `"${note.text.replace(/"/g, '""')}"`
@@ -1042,21 +1169,28 @@
                 return csvContent;
             }
 
-            exportToJSON(notes) {
-                return JSON.stringify(notes, null, 2);
+            exportToJSON(notes, includeMilliseconds = true) {
+                const exportNotes = notes.map(note => ({
+                    id: note.id,
+                    timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
+                    seconds: note.seconds,
+                    type: note.type,
+                    text: note.text
+                }));
+                return JSON.stringify(exportNotes, null, 2);
             }
 
-            exportToMarkdown(notes) {
+            exportToMarkdown(notes, includeMilliseconds = true) {
                 const content = [
                     `# Notes — ${this.currentVideoFileName}`,
                     '',
-                    ...notes.map(note => `- **${note.timecode}** *(${note.type})* — ${note.text}`)
+                    ...notes.map(note => `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`)
                 ].join('\n');
                 return content;
             }
 
-            exportToPlainText(notes) {
-                return notes.map(note => `[${note.timecode}] (${note.type}) ${note.text}`).join('\n');
+            exportToPlainText(notes, includeMilliseconds = true) {
+                return notes.map(note => `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`).join('\n');
             }
 
             getTimestamp() {
