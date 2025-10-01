@@ -317,8 +317,7 @@
                             </button>
                             <button 
                                 id="exportBtn" 
-                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                             >
                                 Экспорт
                             </button>
@@ -1213,7 +1212,6 @@
             updateUI() {
                 const hasVideo = !!this.currentVideoFileName;
                 this.addNoteBtn.disabled = !hasVideo || !this.noteText.value.trim();
-                this.exportBtn.disabled = !hasVideo || this.currentNotes.length === 0;
                 this.noteText.disabled = !hasVideo;
                 this.speedControl.disabled = !hasVideo;
             }
