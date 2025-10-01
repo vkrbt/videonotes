@@ -531,6 +531,7 @@
                 this.lastDeletedNote = null;
                 this.toastTimeout = null;
                 this.autoPauseEnabled = true;
+                this.saveTimeouts = {};
                 
                 this.init();
             }
@@ -606,8 +607,6 @@
             }
 
             handleHotkeys(e) {
-                // Проверяем, что фокус не на поле ввода заметок и не на видео
-                if (e.target === this.noteText || e.target === this.videoPlayer) return;
                 
                 // Перемотка с Ctrl + стрелки
                 if (e.ctrlKey || e.metaKey) {
@@ -629,6 +628,9 @@
                     }
                     return;
                 }
+
+                // Проверяем, что фокус не на поле ввода заметок и не на видео
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target === this.videoPlayer) return;
                 
                 switch(e.key) {
                     case ' ':
@@ -767,7 +769,7 @@
                 }
 
                 const notesHTML = this.currentNotes.map(note => `
-                    <div class="note-item p-3 border border-gray-200 rounded-lg fade-in">
+                    <div class="note-item p-3 border border-gray-200 rounded-lg fade-in group" data-note-id="${note.id}">
                         <div class="flex items-start justify-between mb-2">
                             <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
                                 ${note.timecode}
@@ -777,7 +779,7 @@
                                     ${note.type}
                                 </span>
                                 <button 
-                                    class="delete-btn text-red-500 hover:text-red-700 text-xs px-1" 
+                                    class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
                                     data-note-id="${note.id}"
                                     title="Удалить заметку"
                                 >
@@ -785,7 +787,17 @@
                                 </button>
                             </div>
                         </div>
-                        <p class="text-sm text-gray-700">${this.escapeHtml(note.text)}</p>
+                        <div class="note-content">
+                            <textarea 
+                                class="note-text-edit w-full p-2 text-sm border border-gray-300 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                rows="2"
+                                data-note-id="${note.id}"
+                                placeholder="Введите текст заметки..."
+                            >${this.escapeHtml(note.text)}</textarea>
+                        </div>
+                        <div class="mt-1 flex justify-end">
+                            <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
+                        </div>
                     </div>
                 `).join('');
 
@@ -806,6 +818,14 @@
                         e.stopPropagation();
                         const noteId = e.target.dataset.noteId;
                         this.deleteNote(noteId);
+                    });
+                });
+
+                // Добавляем обработчики редактирования заметок с дебаунсом
+                this.notesList.querySelectorAll('.note-text-edit').forEach(textarea => {
+                    textarea.addEventListener('input', (e) => {
+                        const noteId = e.target.dataset.noteId;
+                        this.debouncedSaveNote(noteId);
                     });
                 });
             }
@@ -836,6 +856,49 @@
                 
                 // Показываем тост с возможностью восстановления
                 this.showRestoreToast();
+            }
+
+            debouncedSaveNote(noteId) {
+                // Очищаем предыдущий таймаут для этой заметки
+                if (this.saveTimeouts[noteId]) {
+                    clearTimeout(this.saveTimeouts[noteId]);
+                }
+
+                // Показываем статус "Сохранение..."
+                this.updateSaveStatus(noteId, 'Сохранение...', 'text-yellow-500');
+
+                // Устанавливаем новый таймаут
+                this.saveTimeouts[noteId] = setTimeout(() => {
+                    this.saveNote(noteId);
+                }, 1000); // 1 секунда дебаунс
+            }
+
+            saveNote(noteId) {
+                const textarea = this.notesList.querySelector(`textarea[data-note-id="${noteId}"]`);
+                if (!textarea) return;
+
+                const newText = textarea.value.trim();
+
+                // Находим заметку в массиве
+                const note = this.currentNotes.find(n => n.id === noteId);
+                if (note) {
+                    note.text = newText;
+                    this.saveNotes();
+                    this.updateSaveStatus(noteId, 'Сохранено', 'text-green-500');
+                    
+                    // Скрываем статус через 2 секунды
+                    setTimeout(() => {
+                        this.updateSaveStatus(noteId, '', '');
+                    }, 2000);
+                }
+            }
+
+            updateSaveStatus(noteId, text, className) {
+                const statusElement = this.notesList.querySelector(`.save-status[data-note-id="${noteId}"]`);
+                if (statusElement) {
+                    statusElement.textContent = text;
+                    statusElement.className = `save-status text-xs ${className}`;
+                }
             }
 
             showRestoreToast() {
