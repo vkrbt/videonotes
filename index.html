@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Notes App</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         /* Дополнительные стили для улучшения UX */
         .video-container {
@@ -203,6 +204,76 @@
         .toast-dismiss:hover {
             background-color: #e5e7eb;
         }
+        
+        /* Стили для переключателя видео */
+        .video-tab {
+            color: #6b7280;
+            background-color: transparent;
+        }
+        
+        .video-tab.active {
+            color: #1f2937;
+            background-color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        
+        .video-tab:hover:not(.active) {
+            color: #374151;
+        }
+        
+        /* Стили для YouTube iframe */
+        .youtube-iframe {
+            width: 100%;
+            height: 400px;
+            border: none;
+            border-radius: 8px;
+        }
+        
+        .video-section {
+            transition: all 0.3s ease;
+        }
+        
+        .video-section.hidden {
+            display: none;
+        }
+        
+        /* Стили для переключателя режимов */
+        .mode-tab {
+            color: #6b7280;
+            background-color: transparent;
+        }
+        
+        .mode-tab.active {
+            color: #1f2937;
+            background-color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        
+        .mode-tab:hover:not(.active) {
+            color: #374151;
+        }
+        
+        /* Стили для диапазонов */
+        .range-item {
+            border-left: 4px solid #f59e0b;
+            background: linear-gradient(90deg, #fef3c7 0%, #fef7ed 100%);
+        }
+        
+        .range-timecode {
+            color: #3b82f6;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .range-timecode:hover {
+            color: #1d4ed8;
+        }
+        
+        .range-duration {
+            color: #d97706;
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -210,34 +281,86 @@
         <!-- Заголовок -->
         <div class="mb-6">
             <h1 class="text-3xl font-bold text-gray-800 mb-2">Video Notes App</h1>
-            <p class="text-gray-600">Загрузите видео и создавайте таймкодированные заметки</p>
+            <p class="text-gray-600">Загрузите локальное видео или вставьте ссылку на YouTube и создавайте таймкодированные заметки</p>
         </div>
 
         <!-- Блок выбора видео -->
         <div class="mb-6">
-            <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">
-                Выберите видеофайл
-            </label>
-            <input 
-                type="file" 
-                id="videoFile" 
-                accept="video/*" 
-                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            >
+            <!-- Переключатель типа видео -->
+            <div class="mb-4">
+                <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+                    <button 
+                        id="localVideoTab" 
+                        class="px-4 py-2 text-sm font-medium rounded-md transition-colors video-tab active"
+                    >
+                        Локальное видео
+                    </button>
+                    <button 
+                        id="youtubeTab" 
+                        class="px-4 py-2 text-sm font-medium rounded-md transition-colors video-tab"
+                    >
+                        YouTube
+                    </button>
+                </div>
+            </div>
+
+            <!-- Локальное видео -->
+            <div id="localVideoSection" class="video-section">
+                <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">
+                    Выберите видеофайл
+                </label>
+                <input 
+                    type="file" 
+                    id="videoFile" 
+                    accept="video/*" 
+                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                >
+            </div>
+
+            <!-- YouTube видео -->
+            <div id="youtubeSection" class="video-section hidden">
+                <label for="youtubeUrl" class="block text-sm font-medium text-gray-700 mb-2">
+                    Вставьте ссылку на YouTube видео
+                </label>
+                <div class="flex space-x-2">
+                    <input 
+                        type="url" 
+                        id="youtubeUrl" 
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                    <button 
+                        id="loadYoutubeBtn" 
+                        class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled
+                    >
+                        Загрузить
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                    Поддерживаются ссылки вида: youtube.com/watch?v=... или youtu.be/...
+                </p>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Видеоплеер -->
             <div class="lg:col-span-2">
                 <div class="video-container rounded-lg overflow-hidden shadow-lg">
+                    <!-- Локальное видео -->
                     <video 
                         id="videoPlayer" 
                         controls 
-                        class="w-full h-auto"
+                        class="w-full h-auto local-video"
                         style="min-height: 300px;"
                     >
                         Ваш браузер не поддерживает воспроизведение видео.
                     </video>
+                    
+                    <!-- YouTube iframe -->
+                    <div id="youtubePlayer" class="youtube-player hidden">
+                        <!-- iframe будет добавлен динамически -->
+                    </div>
                 </div>
                 
                 <!-- Контрол скорости -->
@@ -287,6 +410,10 @@
                     </h4>
                     
                     <div class="space-y-2 text-xs text-gray-600">
+                        <div class="flex items-start space-x-2">
+                            <span class="text-blue-500 font-semibold">•</span>
+                            <span>Поддержка локальных видеофайлов и YouTube видео</span>
+                        </div>
                         <div class="flex items-start space-x-2">
                             <span class="text-blue-500 font-semibold">•</span>
                             <span>Создание таймкодированных заметок с типами и цветовым кодированием</span>
@@ -355,7 +482,41 @@
             <!-- Панель заметок -->
             <div class="lg:col-span-1">
                 <div class="bg-white rounded-lg shadow-lg p-4 notes-panel">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Заметки</h3>
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Заметки</h3>
+                        <button 
+                            id="exportBtnLocal" 
+                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 hidden"
+                        >
+                            Экспорт
+                        </button>
+                    </div>
+                    
+                    <!-- Режимы работы (только для YouTube) -->
+                    <div id="modeSelector" class="mb-4 hidden">
+                        <div class="flex items-center justify-between">
+                            <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+                                <button 
+                                    id="notesModeBtn" 
+                                    class="px-3 py-1 text-sm font-medium rounded-md transition-colors mode-tab active"
+                                >
+                                    Заметки
+                                </button>
+                                <button 
+                                    id="rangesModeBtn" 
+                                    class="px-3 py-1 text-sm font-medium rounded-md transition-colors mode-tab"
+                                >
+                                    Диапазоны
+                                </button>
+                            </div>
+                            <button 
+                                id="exportBtn" 
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                            >
+                                Экспорт
+                            </button>
+                        </div>
+                    </div>
                     
                     <!-- Типы заметок -->
                     <div class="mb-4">
@@ -381,7 +542,7 @@
                             rows="3"
                             class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         ></textarea>
-                        <div class="mt-2 flex justify-between items-center">
+                        <div class="mt-2 flex justify-end">
                             <button 
                                 id="addNoteBtn" 
                                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -389,12 +550,66 @@
                             >
                                 Добавить заметку
                             </button>
-                            <button 
-                                id="exportBtn" 
-                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                            >
-                                Экспорт
-                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Форма диапазонов (только для YouTube) -->
+                    <div id="rangeForm" class="mb-4 hidden">
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <h4 class="text-sm font-semibold text-yellow-800 mb-3">Создание диапазона</h4>
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-gray-700">Начало:</span>
+                                    <div class="flex items-center space-x-2">
+                                        <span id="rangeStartTime" class="text-sm font-mono bg-white px-2 py-1 rounded border">00:00:00.000</span>
+                                        <button 
+                                            id="setRangeStartBtn" 
+                                            class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Установить
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-gray-700">Конец:</span>
+                                    <div class="flex items-center space-x-2">
+                                        <span id="rangeEndTime" class="text-sm font-mono bg-white px-2 py-1 rounded border">00:00:00.000</span>
+                                        <button 
+                                            id="setRangeEndBtn" 
+                                            class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Установить
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-gray-700">Длительность:</span>
+                                    <span id="rangeDuration" class="text-sm font-mono text-gray-600">00:00:00.000</span>
+                                </div>
+                                <div class="mt-3">
+                                    <input 
+                                        type="text" 
+                                        id="rangeDescription" 
+                                        placeholder="Описание диапазона (необязательно)..."
+                                        class="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                </div>
+                                <div class="flex justify-between items-center mt-3">
+                                    <button 
+                                        id="addRangeBtn" 
+                                        class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        disabled
+                                    >
+                                        Добавить диапазон
+                                    </button>
+                                    <button 
+                                        id="clearRangeBtn" 
+                                        class="px-3 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                                    >
+                                        Очистить
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -523,15 +738,40 @@
                 this.noteText = document.getElementById('noteText');
                 this.addNoteBtn = document.getElementById('addNoteBtn');
                 this.exportBtn = document.getElementById('exportBtn');
+                this.exportBtnLocal = document.getElementById('exportBtnLocal');
                 this.notesList = document.getElementById('notesList');
                 this.noteTypes = document.getElementById('noteTypes');
                 this.addTypeBtn = document.getElementById('addTypeBtn');
+                
+                // YouTube элементы
+                this.youtubeUrl = document.getElementById('youtubeUrl');
+                this.loadYoutubeBtn = document.getElementById('loadYoutubeBtn');
+                this.youtubePlayer = document.getElementById('youtubePlayer');
+                this.localVideoTab = document.getElementById('localVideoTab');
+                this.youtubeTab = document.getElementById('youtubeTab');
+                this.localVideoSection = document.getElementById('localVideoSection');
+                this.youtubeSection = document.getElementById('youtubeSection');
+                
+                // Элементы режимов и диапазонов
+                this.modeSelector = document.getElementById('modeSelector');
+                this.notesModeBtn = document.getElementById('notesModeBtn');
+                this.rangesModeBtn = document.getElementById('rangesModeBtn');
+                this.rangeForm = document.getElementById('rangeForm');
+                this.rangeStartTime = document.getElementById('rangeStartTime');
+                this.rangeEndTime = document.getElementById('rangeEndTime');
+                this.rangeDuration = document.getElementById('rangeDuration');
+                this.rangeDescription = document.getElementById('rangeDescription');
+                this.setRangeStartBtn = document.getElementById('setRangeStartBtn');
+                this.setRangeEndBtn = document.getElementById('setRangeEndBtn');
+                this.addRangeBtn = document.getElementById('addRangeBtn');
+                this.clearRangeBtn = document.getElementById('clearRangeBtn');
                 
                 // Модальные окна
                 this.exportModal = document.getElementById('exportModal');
                 this.addTypeModal = document.getElementById('addTypeModal');
                 
                 this.currentVideoFileName = null;
+                this.currentVideoUrl = null;
                 this.currentNotes = [];
                 this.availableTypes = ['Правка', 'Таймкод', 'Хук', 'Другое' ];
                 this.selectedType = 'Правка';
@@ -540,6 +780,16 @@
                 this.toastTimeout = null;
                 this.autoPauseEnabled = true;
                 this.saveTimeouts = {};
+                this.currentVideoType = 'local'; // 'local' или 'youtube'
+                this.youtubePlayerInstance = null;
+                this.youtubeVideoId = null;
+                this.currentMode = 'notes'; // 'notes' или 'ranges'
+                this.currentRange = {
+                    start: null,
+                    end: null,
+                    startTime: null,
+                    endTime: null
+                };
                 
                 this.init();
             }
@@ -554,6 +804,25 @@
             setupEventListeners() {
                 // Загрузка видео
                 this.videoFileInput.addEventListener('change', (e) => this.handleVideoLoad(e));
+                
+                // YouTube
+                this.youtubeUrl.addEventListener('input', (e) => this.handleYoutubeUrlChange(e));
+                this.loadYoutubeBtn.addEventListener('click', () => this.loadYoutubeVideo());
+                
+                // Переключатели видео
+                this.localVideoTab.addEventListener('click', () => this.switchToLocalVideo());
+                this.youtubeTab.addEventListener('click', () => this.switchToYoutube());
+                
+                // Переключатели режимов
+                this.notesModeBtn.addEventListener('click', () => this.switchToNotesMode());
+                this.rangesModeBtn.addEventListener('click', () => this.switchToRangesMode());
+                
+                // Диапазоны
+                this.setRangeStartBtn.addEventListener('click', () => this.setRangeStart());
+                this.setRangeEndBtn.addEventListener('click', () => this.setRangeEnd());
+                this.addRangeBtn.addEventListener('click', () => this.addRange());
+                this.clearRangeBtn.addEventListener('click', () => this.clearRange());
+                this.rangeDescription.addEventListener('input', () => this.updateRangeButton());
                 
                 // Контрол скорости
                 this.speedControl.addEventListener('input', (e) => this.handleSpeedChange(e));
@@ -573,6 +842,7 @@
                 
                 // Экспорт
                 this.exportBtn.addEventListener('click', () => this.showExportModal());
+                this.exportBtnLocal.addEventListener('click', () => this.showExportModal());
                 
                 // Управление типами
                 this.addTypeBtn.addEventListener('click', () => this.showAddTypeModal());
@@ -658,10 +928,16 @@
             }
 
             seekVideo(seconds) {
-                if (!this.videoPlayer.src) return;
-                
-                const newTime = Math.max(0, this.videoPlayer.currentTime + seconds);
-                this.videoPlayer.currentTime = newTime;
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
+                    const newTime = Math.max(0, currentTime + seconds);
+                    this.youtubePlayerInstance.seekTo(newTime, true);
+                } else if (this.currentVideoType === 'local' && this.videoPlayer.src) {
+                    const newTime = Math.max(0, this.videoPlayer.currentTime + seconds);
+                    this.videoPlayer.currentTime = newTime;
+                } else {
+                    return;
+                }
                 
                 // Показываем краткое уведомление о перемотке
                 const direction = seconds > 0 ? 'вперед' : 'назад';
@@ -712,20 +988,287 @@
                 }
             }
 
+            // YouTube методы
+            switchToLocalVideo() {
+                this.currentVideoType = 'local';
+                this.localVideoTab.classList.add('active');
+                this.youtubeTab.classList.remove('active');
+                this.localVideoSection.classList.remove('hidden');
+                this.youtubeSection.classList.add('hidden');
+                this.videoPlayer.classList.remove('hidden');
+                this.youtubePlayer.classList.add('hidden');
+                this.modeSelector.classList.add('hidden');
+                this.exportBtnLocal.classList.remove('hidden');
+                this.switchToNotesMode(); // Переключаемся на режим заметок
+                this.loadNotes(); // Перезагружаем заметки при переключении типа видео
+                this.updateUI();
+            }
+
+            switchToYoutube() {
+                this.currentVideoType = 'youtube';
+                this.youtubeTab.classList.add('active');
+                this.localVideoTab.classList.remove('active');
+                this.youtubeSection.classList.remove('hidden');
+                this.localVideoSection.classList.add('hidden');
+                this.videoPlayer.classList.add('hidden');
+                this.youtubePlayer.classList.remove('hidden');
+                this.modeSelector.classList.remove('hidden');
+                this.exportBtnLocal.classList.add('hidden');
+                this.loadNotes(); // Перезагружаем заметки при переключении типа видео
+                this.updateUI();
+            }
+
+            handleYoutubeUrlChange(e) {
+                const url = e.target.value.trim();
+                const isValid = this.isValidYoutubeUrl(url);
+                this.loadYoutubeBtn.disabled = !isValid;
+            }
+
+            isValidYoutubeUrl(url) {
+                const patterns = [
+                    /^https?:\/\/(www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+                    /^https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})/,
+                    /^https?:\/\/(www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/
+                ];
+                return patterns.some(pattern => pattern.test(url));
+            }
+
+            extractVideoId(url) {
+                const patterns = [
+                    /[?&]v=([a-zA-Z0-9_-]{11})/,
+                    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+                    /embed\/([a-zA-Z0-9_-]{11})/
+                ];
+                
+                for (const pattern of patterns) {
+                    const match = url.match(pattern);
+                    if (match) return match[1];
+                }
+                return null;
+            }
+
+            loadYoutubeVideo() {
+                const url = this.youtubeUrl.value.trim();
+                if (!this.isValidYoutubeUrl(url)) {
+                    this.showToast('Неверная ссылка на YouTube видео', 'error');
+                    return;
+                }
+
+                const videoId = this.extractVideoId(url);
+                if (!videoId) {
+                    this.showToast('Не удалось извлечь ID видео', 'error');
+                    return;
+                }
+
+                // Предупреждение о смене видео
+                if (this.currentVideoFileName && this.currentNotes.length > 0) {
+                    if (!confirm('При смене видео текущие заметки будут сохранены. Продолжить?')) {
+                        return;
+                    }
+                }
+
+                this.youtubeVideoId = videoId;
+                this.currentVideoFileName = `youtube_${videoId}`;
+                this.currentVideoUrl = url;
+                
+                this.loadYoutubePlayer(videoId);
+                this.loadNotes();
+                this.updateUI();
+            }
+
+            loadYoutubePlayer(videoId) {
+                // Очищаем предыдущий плеер
+                this.youtubePlayer.innerHTML = '';
+                
+                // Создаем iframe для YouTube
+                const iframe = document.createElement('iframe');
+                iframe.className = 'youtube-iframe';
+                iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${window.location.origin}`;
+                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+                iframe.allowFullscreen = true;
+                
+                this.youtubePlayer.appendChild(iframe);
+                
+                // Инициализируем YouTube Player API
+                if (window.YT && window.YT.Player) {
+                    this.initializeYoutubePlayer(videoId);
+                } else {
+                    // Ждем загрузки YouTube API
+                    window.onYouTubeIframeAPIReady = () => {
+                        this.initializeYoutubePlayer(videoId);
+                    };
+                }
+            }
+
+            initializeYoutubePlayer(videoId) {
+                this.youtubePlayerInstance = new YT.Player(this.youtubePlayer.querySelector('iframe'), {
+                    videoId: videoId,
+                    events: {
+                        'onReady': (event) => {
+                            console.log('YouTube player ready');
+                            this.setVideoProgressToLastNote();
+                        },
+                        'onStateChange': (event) => {
+                            // Обработка изменений состояния плеера
+                            if (event.data === YT.PlayerState.PAUSED) {
+                                this.isVideoPaused = true;
+                            } else if (event.data === YT.PlayerState.PLAYING) {
+                                this.isVideoPaused = false;
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Методы для работы с режимами
+            switchToNotesMode() {
+                this.currentMode = 'notes';
+                this.notesModeBtn.classList.add('active');
+                this.rangesModeBtn.classList.remove('active');
+                this.noteText.parentElement.classList.remove('hidden');
+                this.rangeForm.classList.add('hidden');
+                this.loadNotes(); // Перезагружаем заметки при переключении режима
+                this.updateUI();
+            }
+
+            switchToRangesMode() {
+                this.currentMode = 'ranges';
+                this.rangesModeBtn.classList.add('active');
+                this.notesModeBtn.classList.remove('active');
+                this.noteText.parentElement.classList.add('hidden');
+                this.rangeForm.classList.remove('hidden');
+                this.loadNotes(); // Перезагружаем заметки при переключении режима
+                this.updateUI();
+            }
+
+            // Методы для работы с диапазонами
+            setRangeStart() {
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
+                    this.currentRange.start = currentTime;
+                    this.currentRange.startTime = this.formatTimecode(currentTime);
+                    this.rangeStartTime.textContent = this.currentRange.startTime;
+                    this.updateRangeDuration();
+                    this.updateRangeButtons();
+                    this.showToast(`Начало диапазона: ${this.currentRange.startTime}`, 'info');
+                }
+            }
+
+            setRangeEnd() {
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
+                    this.currentRange.end = currentTime;
+                    this.currentRange.endTime = this.formatTimecode(currentTime);
+                    this.rangeEndTime.textContent = this.currentRange.endTime;
+                    this.updateRangeDuration();
+                    this.updateRangeButtons();
+                    this.showToast(`Конец диапазона: ${this.currentRange.endTime}`, 'info');
+                }
+            }
+
+            updateRangeDuration() {
+                if (this.currentRange.start !== null && this.currentRange.end !== null) {
+                    const duration = Math.abs(this.currentRange.end - this.currentRange.start);
+                    this.rangeDuration.textContent = this.formatTimecode(duration);
+                } else {
+                    this.rangeDuration.textContent = '00:00:00.000';
+                }
+            }
+
+            updateRangeButtons() {
+                const hasStart = this.currentRange.start !== null;
+                const hasEnd = this.currentRange.end !== null;
+                
+                this.setRangeEndBtn.disabled = !hasStart;
+                this.addRangeBtn.disabled = !hasStart || !hasEnd;
+            }
+
+            updateRangeButton() {
+                this.updateRangeButtons();
+            }
+
+            clearRange() {
+                this.currentRange = {
+                    start: null,
+                    end: null,
+                    startTime: null,
+                    endTime: null
+                };
+                this.rangeStartTime.textContent = '00:00:00.000';
+                this.rangeEndTime.textContent = '00:00:00.000';
+                this.rangeDuration.textContent = '00:00:00.000';
+                this.rangeDescription.value = '';
+                this.updateRangeButtons();
+            }
+
+            addRange() {
+                if (!this.currentRange.start || !this.currentRange.end) {
+                    return;
+                }
+
+                const description = this.rangeDescription.value.trim() || 'Диапазон времени';
+                const startTime = Math.min(this.currentRange.start, this.currentRange.end);
+                const endTime = Math.max(this.currentRange.start, this.currentRange.end);
+                const duration = endTime - startTime;
+
+                const range = {
+                    id: this.generateId(),
+                    type: 'range',
+                    rangeType: 'Таймкод', // Тип диапазона
+                    startSeconds: startTime,
+                    endSeconds: endTime,
+                    startTimecode: this.formatTimecode(startTime),
+                    endTimecode: this.formatTimecode(endTime),
+                    duration: duration,
+                    durationTimecode: this.formatTimecode(duration),
+                    description: description,
+                    // Для совместимости с существующим кодом
+                    seconds: startTime,
+                    timecode: `${this.formatTimecode(startTime)} - ${this.formatTimecode(endTime)}`,
+                    text: description
+                };
+
+                this.currentNotes.push(range);
+                this.currentNotes.sort((a, b) => b.seconds - a.seconds);
+                
+                this.saveNotes();
+                this.renderNotes();
+                this.clearRange();
+                this.showToast(`Диапазон добавлен: ${range.startTimecode} - ${range.endTimecode}`, 'success');
+            }
+
             pauseVideo() {
-                if (!this.videoPlayer.paused) {
-                    this.videoPlayer.pause();
-                    this.isVideoPaused = true;
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    if (this.youtubePlayerInstance.getPlayerState() === YT.PlayerState.PLAYING) {
+                        this.youtubePlayerInstance.pauseVideo();
+                        this.isVideoPaused = true;
+                    }
+                } else if (this.currentVideoType === 'local') {
+                    if (!this.videoPlayer.paused) {
+                        this.videoPlayer.pause();
+                        this.isVideoPaused = true;
+                    }
                 }
             }
 
             togglePlayPause() {
-                if (this.videoPlayer.paused) {
-                    this.videoPlayer.play();
-                    this.isVideoPaused = false;
-                } else {
-                    this.videoPlayer.pause();
-                    this.isVideoPaused = true;
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    const state = this.youtubePlayerInstance.getPlayerState();
+                    if (state === YT.PlayerState.PLAYING) {
+                        this.youtubePlayerInstance.pauseVideo();
+                        this.isVideoPaused = true;
+                    } else {
+                        this.youtubePlayerInstance.playVideo();
+                        this.isVideoPaused = false;
+                    }
+                } else if (this.currentVideoType === 'local') {
+                    if (this.videoPlayer.paused) {
+                        this.videoPlayer.play();
+                        this.isVideoPaused = false;
+                    } else {
+                        this.videoPlayer.pause();
+                        this.isVideoPaused = true;
+                    }
                 }
             }
 
@@ -738,7 +1281,15 @@
                 const text = this.noteText.value.trim();
                 if (!text || !this.currentVideoFileName) return;
 
-                const currentTime = this.videoPlayer.currentTime;
+                let currentTime;
+                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                    currentTime = this.youtubePlayerInstance.getCurrentTime();
+                } else if (this.currentVideoType === 'local') {
+                    currentTime = this.videoPlayer.currentTime;
+                } else {
+                    return;
+                }
+
                 const timecode = this.formatTimecode(currentTime);
                 
                 const note = {
@@ -759,8 +1310,13 @@
                 
                 // Продолжаем воспроизведение видео
                 if (this.isVideoPaused) {
-                    this.videoPlayer.play();
-                    this.isVideoPaused = false;
+                    if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                        this.youtubePlayerInstance.playVideo();
+                        this.isVideoPaused = false;
+                    } else if (this.currentVideoType === 'local') {
+                        this.videoPlayer.play();
+                        this.isVideoPaused = false;
+                    }
                 }
             }
 
@@ -783,43 +1339,85 @@
                     return;
                 }
 
-                const notesHTML = this.currentNotes.map(note => `
-                    <div class="note-item p-3 bg-gray-100 rounded-lg fade-in group" data-note-id="${note.id}">
-                        <div class="flex items-start justify-between mb-2">
-                            <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
-                                ${note.timecode}
-                            </span>
-                            <div class="flex items-center space-x-2">
-                                <select 
-                                    class="note-type-select text-xs px-2 py-1 rounded-full border-0 focus:ring-2 focus:ring-blue-500 type-${this.getTypeClass(note.type)}"
-                                    data-note-id="${note.id}"
-                                >
-                                    ${this.availableTypes.map(type => 
-                                        `<option value="${type}" ${type === note.type ? 'selected' : ''}>${type}</option>`
-                                    ).join('')}
-                                </select>
-                                <button 
-                                    class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-                                    data-note-id="${note.id}"
-                                    title="Удалить заметку"
-                                >
-                                    ✕
-                                </button>
+                const notesHTML = this.currentNotes.map(note => {
+                    if (note.type === 'range') {
+                        return `
+                            <div class="note-item range-item p-3 rounded-lg fade-in group" data-note-id="${note.id}">
+                                <div class="flex items-start justify-between mb-2">
+                                    <div class="flex flex-col">
+                                        <span class="range-timecode text-sm font-mono" data-seconds="${note.startSeconds}">
+                                            ${note.startTimecode} - ${note.endTimecode}
+                                        </span>
+                                        <span class="range-duration text-xs mt-1">
+                                            Длительность: ${note.durationTimecode}
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-xs px-2 py-1 bg-yellow-200 text-yellow-800 rounded-full">
+                                            ${note.rangeType || 'Диапазон'}
+                                        </span>
+                                        <button 
+                                            class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
+                                            data-note-id="${note.id}"
+                                            title="Удалить диапазон"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="note-content">
+                                    <textarea 
+                                        class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        rows="2"
+                                        data-note-id="${note.id}"
+                                        placeholder="Описание диапазона (необязательно)..."
+                                    >${this.escapeHtml(note.description)}</textarea>
+                                </div>
+                                <div class="mt-1 flex justify-end">
+                                    <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="note-content">
-                            <textarea 
-                                class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                rows="2"
-                                data-note-id="${note.id}"
-                                placeholder="Введите текст заметки..."
-                            >${this.escapeHtml(note.text)}</textarea>
-                        </div>
-                        <div class="mt-1 flex justify-end">
-                            <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
-                        </div>
-                    </div>
-                `).join('');
+                        `;
+                    } else {
+                        return `
+                            <div class="note-item p-3 bg-gray-100 rounded-lg fade-in group" data-note-id="${note.id}">
+                                <div class="flex items-start justify-between mb-2">
+                                    <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
+                                        ${note.timecode}
+                                    </span>
+                                    <div class="flex items-center space-x-2">
+                                        <select 
+                                            class="note-type-select text-xs px-2 py-1 rounded-full border-0 focus:ring-2 focus:ring-blue-500 type-${this.getTypeClass(note.type)}"
+                                            data-note-id="${note.id}"
+                                        >
+                                            ${this.availableTypes.map(type => 
+                                                `<option value="${type}" ${type === note.type ? 'selected' : ''}>${type}</option>`
+                                            ).join('')}
+                                        </select>
+                                        <button 
+                                            class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
+                                            data-note-id="${note.id}"
+                                            title="Удалить заметку"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="note-content">
+                                    <textarea 
+                                        class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        rows="2"
+                                        data-note-id="${note.id}"
+                                        placeholder="Введите текст заметки..."
+                                    >${this.escapeHtml(note.text)}</textarea>
+                                </div>
+                                <div class="mt-1 flex justify-end">
+                                    <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }).join('');
 
                 this.notesList.innerHTML = notesHTML;
 
@@ -827,8 +1425,27 @@
                 this.notesList.querySelectorAll('.timecode-link').forEach(link => {
                     link.addEventListener('click', (e) => {
                         const seconds = parseFloat(e.target.dataset.seconds);
-                        this.videoPlayer.currentTime = seconds;
-                        this.videoPlayer.play();
+                        if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                            this.youtubePlayerInstance.seekTo(seconds, true);
+                            this.youtubePlayerInstance.playVideo();
+                        } else if (this.currentVideoType === 'local') {
+                            this.videoPlayer.currentTime = seconds;
+                            this.videoPlayer.play();
+                        }
+                    });
+                });
+
+                // Добавляем обработчики кликов по диапазонам
+                this.notesList.querySelectorAll('.range-timecode').forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        const seconds = parseFloat(e.target.dataset.seconds);
+                        if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                            this.youtubePlayerInstance.seekTo(seconds, true);
+                            this.youtubePlayerInstance.playVideo();
+                        } else if (this.currentVideoType === 'local') {
+                            this.videoPlayer.currentTime = seconds;
+                            this.videoPlayer.play();
+                        }
                     });
                 });
 
@@ -911,7 +1528,12 @@
                 // Находим заметку в массиве
                 const note = this.currentNotes.find(n => n.id === noteId);
                 if (note) {
-                    note.text = newText;
+                    if (note.type === 'range') {
+                        note.description = newText;
+                        note.text = newText; // Для совместимости
+                    } else {
+                        note.text = newText;
+                    }
                     this.saveNotes();
                     this.updateSaveStatus(noteId, 'Сохранено', 'text-green-500');
                     
@@ -960,11 +1582,17 @@
                 });
 
                 if (lastNote) {
-                    // Ждем, пока видео загрузится, затем устанавливаем время
-                    this.videoPlayer.addEventListener('loadedmetadata', () => {
-                        this.videoPlayer.currentTime = lastNote.seconds;
+                    if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
+                        // Для YouTube устанавливаем время сразу, так как плеер уже готов
+                        this.youtubePlayerInstance.seekTo(lastNote.seconds, true);
                         this.showToast(`Переход к последней заметке: ${lastNote.timecode}`, 'info');
-                    }, { once: true });
+                    } else if (this.currentVideoType === 'local') {
+                        // Ждем, пока видео загрузится, затем устанавливаем время
+                        this.videoPlayer.addEventListener('loadedmetadata', () => {
+                            this.videoPlayer.currentTime = lastNote.seconds;
+                            this.showToast(`Переход к последней заметке: ${lastNote.timecode}`, 'info');
+                        }, { once: true });
+                    }
                 }
             }
 
@@ -1173,18 +1801,23 @@
             }
 
             loadNotes() {
+                console.log('Loading notes for video:', this.currentVideoFileName);
                 if (!this.currentVideoFileName) {
                     this.currentNotes = [];
+                    console.log('No video file name, clearing notes');
                     return;
                 }
 
                 const key = `notes::${this.currentVideoFileName}`;
                 const saved = localStorage.getItem(key);
+                console.log('Loading from key:', key, 'Saved data:', saved);
                 if (saved) {
                     const data = JSON.parse(saved);
                     this.currentNotes = data.notes || [];
+                    console.log('Loaded notes:', this.currentNotes);
                 } else {
                     this.currentNotes = [];
+                    console.log('No saved data, clearing notes');
                 }
                 this.renderNotes();
             }
@@ -1212,7 +1845,15 @@
 
             renderExportTypeCheckboxes() {
                 const container = document.getElementById('exportTypeCheckboxes');
-                container.innerHTML = this.availableTypes.map(type => `
+                const types = [...this.availableTypes];
+                
+                // Добавляем "Диапазон" если есть диапазоны в заметках
+                const hasRanges = this.currentNotes.some(note => note.type === 'range');
+                if (hasRanges) {
+                    types.push('Диапазон');
+                }
+                
+                container.innerHTML = types.map(type => `
                     <label class="flex items-center">
                         <input type="checkbox" class="mr-2 export-type-checkbox" value="${type}" checked>
                         <span class="text-sm text-gray-700">${type}</span>
@@ -1242,7 +1883,12 @@
                     return;
                 }
 
-                const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
+                const filteredNotes = this.currentNotes.filter(note => {
+                    if (note.type === 'range') {
+                        return selectedTypes.includes('range') || selectedTypes.includes('Диапазон');
+                    }
+                    return selectedTypes.includes(note.type);
+                });
                 
                 if (filteredNotes.length === 0) {
                     document.getElementById('exportPreview').textContent = 'Нет заметок выбранных типов';
@@ -1288,26 +1934,59 @@
             }
 
             generateCSVPreview(notes, includeMilliseconds) {
-                const headers = ['timecode', 'seconds', 'type', 'text'];
-                const rows = notes.slice(0, 3).map(note => [
-                    `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
-                    note.seconds,
-                    `"${note.type}"`,
-                    `"${note.text.replace(/"/g, '""')}"`
-                ]);
+                const headers = ['timecode', 'seconds', 'type', 'text', 'start_time', 'end_time', 'duration'];
+                const rows = notes.slice(0, 3).map(note => {
+                    if (note.type === 'range') {
+                        return [
+                            `"${note.startTimecode} - ${note.endTimecode}"`,
+                            note.startSeconds,
+                            `"${note.rangeType || 'Диапазон'}"`,
+                            `"${note.description.replace(/"/g, '""')}"`,
+                            `"${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)}"`,
+                            `"${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}"`,
+                            `"${note.durationTimecode}"`
+                        ];
+                    } else {
+                        return [
+                            `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
+                            note.seconds,
+                            `"${note.type}"`,
+                            `"${note.text.replace(/"/g, '""')}"`,
+                            '',
+                            '',
+                            ''
+                        ];
+                    }
+                });
                 
                 return [headers.join(','), ...rows.map(row => row.join(','))].join('\n') + 
                        (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
             }
 
             generateJSONPreview(notes, includeMilliseconds) {
-                const previewNotes = notes.slice(0, 3).map(note => ({
-                    id: note.id,
-                    timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
-                    seconds: note.seconds,
-                    type: note.type,
-                    text: note.text
-                }));
+                const previewNotes = notes.slice(0, 3).map(note => {
+                    if (note.type === 'range') {
+                        return {
+                            id: note.id,
+                            type: 'range',
+                            startTimecode: this.formatTimecodeForExport(note.startSeconds, includeMilliseconds),
+                            endTimecode: this.formatTimecodeForExport(note.endSeconds, includeMilliseconds),
+                            startSeconds: note.startSeconds,
+                            endSeconds: note.endSeconds,
+                            duration: note.duration,
+                            durationTimecode: note.durationTimecode,
+                            description: note.description
+                        };
+                    } else {
+                        return {
+                            id: note.id,
+                            timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
+                            seconds: note.seconds,
+                            type: note.type,
+                            text: note.text
+                        };
+                    }
+                });
                 
                 return JSON.stringify(previewNotes, null, 2) + 
                        (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
@@ -1317,9 +1996,13 @@
                 const preview = [
                     `# Notes — ${this.currentVideoFileName}`,
                     '',
-                    ...notes.slice(0, 3).map(note => 
-                        `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`
-                    )
+                    ...notes.slice(0, 3).map(note => {
+                        if (note.type === 'range') {
+                            return `- **${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}** *(Диапазон, ${note.durationTimecode})* — ${note.description}`;
+                        } else {
+                            return `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`;
+                        }
+                    })
                 ];
                 
                 return preview.join('\n') + 
@@ -1327,9 +2010,13 @@
             }
 
             generatePlainTextPreview(notes, includeMilliseconds) {
-                const preview = notes.slice(0, 3).map(note => 
-                    `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`
-                );
+                const preview = notes.slice(0, 3).map(note => {
+                    if (note.type === 'range') {
+                        return `[${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}] (Диапазон, ${note.durationTimecode}) ${note.description}`;
+                    } else {
+                        return `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`;
+                    }
+                });
                 
                 return preview.join('\n') + 
                        (notes.length > 3 ? `\n... и еще ${notes.length - 3} заметок` : '');
@@ -1339,6 +2026,9 @@
                 const selectedTypes = Array.from(document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]:checked'))
                     .map(cb => cb.value);
                 
+                console.log('Selected types:', selectedTypes);
+                console.log('Current notes:', this.currentNotes);
+                
                 if (selectedTypes.length === 0) {
                     alert('Выберите хотя бы один тип заметок для экспорта');
                     return;
@@ -1346,7 +2036,14 @@
 
                 const format = document.getElementById('exportFormat').value;
                 const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
-                const filteredNotes = this.currentNotes.filter(note => selectedTypes.includes(note.type));
+                const filteredNotes = this.currentNotes.filter(note => {
+                    if (note.type === 'range') {
+                        return selectedTypes.includes('range') || selectedTypes.includes('Диапазон');
+                    }
+                    return selectedTypes.includes(note.type);
+                });
+                
+                console.log('Filtered notes:', filteredNotes);
                 
                 // Сортируем заметки в хронологическом порядке (от старых к новым)
                 const sortedNotes = filteredNotes.sort((a, b) => a.seconds - b.seconds);
@@ -1381,27 +2078,60 @@
             }
 
             exportToCSV(notes, includeMilliseconds = true) {
-                const headers = ['timecode', 'seconds', 'type', 'text'];
+                const headers = ['timecode', 'seconds', 'type', 'text', 'start_time', 'end_time', 'duration'];
                 const csvContent = [
                     headers.join(','),
-                    ...notes.map(note => [
-                        `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
-                        note.seconds,
-                        `"${note.type}"`,
-                        `"${note.text.replace(/"/g, '""')}"`
-                    ].join(','))
+                    ...notes.map(note => {
+                        if (note.type === 'range') {
+                            return [
+                                `"${note.startTimecode} - ${note.endTimecode}"`,
+                                note.startSeconds,
+                                `"Диапазон"`,
+                                `"${note.description.replace(/"/g, '""')}"`,
+                                `"${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)}"`,
+                                `"${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}"`,
+                                `"${note.durationTimecode}"`
+                            ].join(',');
+                        } else {
+                            return [
+                                `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
+                                note.seconds,
+                                `"${note.type}"`,
+                                `"${note.text.replace(/"/g, '""')}"`,
+                                '',
+                                '',
+                                ''
+                            ].join(',');
+                        }
+                    })
                 ].join('\n');
                 return csvContent;
             }
 
             exportToJSON(notes, includeMilliseconds = true) {
-                const exportNotes = notes.map(note => ({
-                    id: note.id,
-                    timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
-                    seconds: note.seconds,
-                    type: note.type,
-                    text: note.text
-                }));
+                const exportNotes = notes.map(note => {
+                    if (note.type === 'range') {
+                        return {
+                            id: note.id,
+                            type: 'range',
+                            startTimecode: this.formatTimecodeForExport(note.startSeconds, includeMilliseconds),
+                            endTimecode: this.formatTimecodeForExport(note.endSeconds, includeMilliseconds),
+                            startSeconds: note.startSeconds,
+                            endSeconds: note.endSeconds,
+                            duration: note.duration,
+                            durationTimecode: note.durationTimecode,
+                            description: note.description
+                        };
+                    } else {
+                        return {
+                            id: note.id,
+                            timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
+                            seconds: note.seconds,
+                            type: note.type,
+                            text: note.text
+                        };
+                    }
+                });
                 return JSON.stringify(exportNotes, null, 2);
             }
 
@@ -1409,13 +2139,25 @@
                 const content = [
                     `# Notes — ${this.currentVideoFileName}`,
                     '',
-                    ...notes.map(note => `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`)
+                    ...notes.map(note => {
+                        if (note.type === 'range') {
+                            return `- **${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}** *(Диапазон, ${note.durationTimecode})* — ${note.description}`;
+                        } else {
+                            return `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`;
+                        }
+                    })
                 ].join('\n');
                 return content;
             }
 
             exportToPlainText(notes, includeMilliseconds = true) {
-                return notes.map(note => `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`).join('\n');
+                return notes.map(note => {
+                    if (note.type === 'range') {
+                        return `[${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}] (Диапазон, ${note.durationTimecode}) ${note.description}`;
+                    } else {
+                        return `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`;
+                    }
+                }).join('\n');
             }
 
             getTimestamp() {
@@ -1439,7 +2181,18 @@
                 const hasVideo = !!this.currentVideoFileName;
                 this.addNoteBtn.disabled = !hasVideo || !this.noteText.value.trim();
                 this.noteText.disabled = !hasVideo;
-                this.speedControl.disabled = !hasVideo;
+                
+                // Контрол скорости работает только для локального видео
+                this.speedControl.disabled = !hasVideo || this.currentVideoType === 'youtube';
+                
+                // Обновляем состояние кнопки загрузки YouTube
+                if (this.currentVideoType === 'youtube') {
+                    const isValid = this.isValidYoutubeUrl(this.youtubeUrl.value.trim());
+                    this.loadYoutubeBtn.disabled = !isValid;
+                    
+                    // Обновляем кнопки диапазонов
+                    this.updateRangeButtons();
+                }
             }
         }
 
