@@ -1,2247 +1,332 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Notes App</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <style>
-        /* Дополнительные стили для улучшения UX */
-        .video-container {
-            position: relative;
-            background: #000;
-        }
-        
-        .notes-panel {
-            max-height: calc(100vh - 200px);
-            overflow-y: auto;
-        }
-        
-        .note-item {
-            transition: all 0.2s ease;
-        }
-        
-        .note-item:hover {
-            background-color: #f3f4f6;
-        }
-        
-        .timecode-link {
-            cursor: pointer;
-            color: #3b82f6;
-            text-decoration: underline;
-        }
-        
-        .timecode-link:hover {
-            color: #1d4ed8;
-        }
-        
-        .type-chip {
-            transition: all 0.2s ease;
-        }
-        
-        .type-chip.active {
-            background-color: #3b82f6 !important;
-            color: white !important;
-            border-color: #1d4ed8 !important;
-        }
-        
-        /* Цвета для типов заметок по позиции */
-        .type-0 {
-            background-color: #dcfce7;
-            color: #166534;
-            border-color: #86efac;
-        }
-        
-        .type-1 {
-            background-color: #dbeafe;
-            color: #1e40af;
-            border-color: #93c5fd;
-        }
-        
-        .type-2 {
-            background-color: #fef3c7;
-            color: #92400e;
-            border-color: #fcd34d;
-        }
-        
-        .type-3 {
-            background-color: #f3f4f6;
-            color: #374151;
-            border-color: #d1d5db;
-        }
-        
-        .type-4 {
-            background-color: #fee2e2;
-            color: #991b1b;
-            border-color: #fca5a5;
-        }
-        
-        .type-5 {
-            background-color: #e0e7ff;
-            color: #3730a3;
-            border-color: #a5b4fc;
-        }
-        
-        .type-6 {
-            background-color: #f0fdf4;
-            color: #14532d;
-            border-color: #bbf7d0;
-        }
-        
-        .type-7 {
-            background-color: #fdf2f8;
-            color: #be185d;
-            border-color: #f9a8d4;
-        }
-        
-        .type-8 {
-            background-color: #ecfdf5;
-            color: #047857;
-            border-color: #6ee7b7;
-        }
-        
-        .type-9 {
-            background-color: #fefce8;
-            color: #a16207;
-            border-color: #fde047;
-        }
-        
-        .delete-btn {
-            opacity: 0;
-            transition: opacity 0.2s ease;
-        }
-        
-        .note-item:hover .delete-btn {
-            opacity: 1;
-        }
-        
-        .speed-display {
-            min-width: 3rem;
-            text-align: center;
-        }
-        
-        /* Анимации */
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .fade-in {
-            animation: fadeIn 0.3s ease;
-        }
-        
-        /* Стили для модального окна экспорта */
-        .modal-overlay {
-            background-color: rgba(0, 0, 0, 0.5);
-        }
-        
-        .modal-content {
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        /* Стили для тоста */
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            padding: 16px;
-            min-width: 300px;
-            z-index: 1000;
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-        }
-        
-        .toast.show {
-            transform: translateX(0);
-        }
-        
-        .toast-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        .toast-message {
-            flex: 1;
-            margin-right: 12px;
-        }
-        
-        .toast-actions {
-            display: flex;
-            gap: 8px;
-        }
-        
-        .toast-btn {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        
-        .toast-restore {
-            background-color: #3b82f6;
-            color: white;
-            border: none;
-        }
-        
-        .toast-restore:hover {
-            background-color: #2563eb;
-        }
-        
-        .toast-dismiss {
-            background-color: #f3f4f6;
-            color: #6b7280;
-            border: 1px solid #d1d5db;
-        }
-        
-        .toast-dismiss:hover {
-            background-color: #e5e7eb;
-        }
-        
-        /* Стили для переключателя видео */
-        .video-tab {
-            color: #6b7280;
-            background-color: transparent;
-        }
-        
-        .video-tab.active {
-            color: #1f2937;
-            background-color: white;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        
-        .video-tab:hover:not(.active) {
-            color: #374151;
-        }
-        
-        /* Стили для YouTube iframe */
-        .youtube-iframe {
-            width: 100%;
-            height: 400px;
-            border: none;
-            border-radius: 8px;
-        }
-        
-        .video-section {
-            transition: all 0.3s ease;
-        }
-        
-        .video-section.hidden {
-            display: none;
-        }
-        
-        /* Стили для переключателя режимов */
-        .mode-tab {
-            color: #6b7280;
-            background-color: transparent;
-        }
-        
-        .mode-tab.active {
-            color: #1f2937;
-            background-color: white;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        }
-        
-        .mode-tab:hover:not(.active) {
-            color: #374151;
-        }
-        
-        /* Стили для диапазонов */
-        .range-item {
-            border-left: 4px solid #f59e0b;
-            background: linear-gradient(90deg, #fef3c7 0%, #fef7ed 100%);
-        }
-        
-        .range-timecode {
-            color: #3b82f6;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: underline;
-        }
-        
-        .range-timecode:hover {
-            color: #1d4ed8;
-        }
-        
-        .range-duration {
-            color: #d97706;
-            font-size: 0.75rem;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Video Notes — правки к видео по таймкодам</title>
+  <meta name="description" content="Открой видео или ссылку на YouTube, пиши правки — таймкод подставится сам. Выгрузка текстом, Markdown, CSV, JSON или ссылкой.">
+  <meta name="theme-color" content="#070709" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f5fa" media="(prefers-color-scheme: light)">
+  <!-- Тема до первой отрисовки, иначе мелькнёт не тот фон -->
+  <script>
+    (function () {
+      var t = localStorage.getItem('videonotes::theme');
+      document.documentElement.setAttribute('data-theme', t === 'light' || t === 'dark' ? t : 'system');
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23000DC3'/%3E%3Cpath d='M25 19v26l21-13z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+  <!-- Dela Gothic One — японская гарнитура; &text= отрезает ненужные CJK-блоки (тот же приём, что на лендинге) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap&text=%20%21%25%26%28%29%2B%2C-./0123456789%3A%3B%3FABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%C2%AB%C2%BB%D0%81%D0%90%D0%91%D0%92%D0%93%D0%94%D0%95%D0%96%D0%97%D0%98%D0%99%D0%9A%D0%9B%D0%9C%D0%9D%D0%9E%D0%9F%D0%A0%D0%A1%D0%A2%D0%A3%D0%A4%D0%A5%D0%A6%D0%A7%D0%A8%D0%A9%D0%AA%D0%AB%D0%AC%D0%AD%D0%AE%D0%AF%D0%B0%D0%B1%D0%B2%D0%B3%D0%B4%D0%B5%D0%B6%D0%B7%D0%B8%D0%B9%D0%BA%D0%BB%D0%BC%D0%BD%D0%BE%D0%BF%D1%80%D1%81%D1%82%D1%83%D1%84%D1%85%D1%86%D1%87%D1%88%D1%89%D1%8A%D1%8B%D1%8C%D1%8D%D1%8E%D1%8F%D1%91%E2%80%93%E2%80%94%E2%80%A6">
+  <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <div class="container mx-auto px-4 py-6">
-        <!-- Заголовок -->
-        <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">Video Notes App</h1>
-            <p class="text-gray-600">Загрузите локальное видео или вставьте ссылку на YouTube и создавайте таймкодированные заметки</p>
-        </div>
+<body>
+  <header class="topbar">
+    <a class="logo" href="./" aria-label="Video Notes — на главную">
+      <span>VIDEO</span><span>NOTES</span>
+    </a>
 
-        <!-- Блок выбора видео -->
-        <div class="mb-6">
-            <!-- Переключатель типа видео -->
-            <div class="mb-4">
-                <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                    <button 
-                        id="localVideoTab" 
-                        class="px-4 py-2 text-sm font-medium rounded-md transition-colors video-tab active"
-                    >
-                        Локальное видео
-                    </button>
-                    <button 
-                        id="youtubeTab" 
-                        class="px-4 py-2 text-sm font-medium rounded-md transition-colors video-tab"
-                    >
-                        YouTube
-                    </button>
-                </div>
-            </div>
-
-            <!-- Локальное видео -->
-            <div id="localVideoSection" class="video-section">
-                <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">
-                    Выберите видеофайл
-                </label>
-                <input 
-                    type="file" 
-                    id="videoFile" 
-                    accept="video/*" 
-                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                >
-            </div>
-
-            <!-- YouTube видео -->
-            <div id="youtubeSection" class="video-section hidden">
-                <label for="youtubeUrl" class="block text-sm font-medium text-gray-700 mb-2">
-                    Вставьте ссылку на YouTube видео
-                </label>
-                <div class="flex space-x-2">
-                    <input 
-                        type="url" 
-                        id="youtubeUrl" 
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                    <button 
-                        id="loadYoutubeBtn" 
-                        class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled
-                    >
-                        Загрузить
-                    </button>
-                </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    Поддерживаются ссылки вида: youtube.com/watch?v=... или youtu.be/...
-                </p>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Видеоплеер -->
-            <div class="lg:col-span-2">
-                <div class="video-container rounded-lg overflow-hidden shadow-lg">
-                    <!-- Локальное видео -->
-                    <video 
-                        id="videoPlayer" 
-                        controls 
-                        class="w-full h-auto local-video"
-                        style="min-height: 300px;"
-                    >
-                        Ваш браузер не поддерживает воспроизведение видео.
-                    </video>
-                    
-                    <!-- YouTube iframe -->
-                    <div id="youtubePlayer" class="youtube-player hidden">
-                        <!-- iframe будет добавлен динамически -->
-                    </div>
-                </div>
-                
-                <!-- Контрол скорости -->
-                <div class="mt-4 flex items-center space-x-4">
-                    <label for="speedControl" class="text-sm font-medium text-gray-700">
-                        Скорость:
-                    </label>
-                    <input 
-                        type="range" 
-                        id="speedControl" 
-                        min="0.25" 
-                        max="3.0" 
-                        step="0.1" 
-                        value="1.0"
-                        class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    >
-                    <span id="speedDisplay" class="speed-display text-sm font-mono bg-gray-100 px-2 py-1 rounded">
-                        1.0×
-                    </span>
-                </div>
-                
-                <!-- Переключатель автопаузы -->
-                <div class="mt-3 flex items-center space-x-3">
-                    <label class="flex items-center space-x-2 cursor-pointer">
-                        <input 
-                            type="checkbox" 
-                            id="autoPauseToggle" 
-                            checked
-                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                        >
-                        <span class="text-sm font-medium text-gray-700">
-                            Автопауза при вводе
-                        </span>
-                    </label>
-                    <span id="autoPauseStatus" class="text-xs text-green-600 font-medium">
-                        Включено
-                    </span>
-                </div>
-
-                <!-- Описание возможностей -->
-                <div class="mt-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
-                    <h4 class="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-                        <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        Возможности приложения
-                    </h4>
-                    
-                    <div class="space-y-2 text-xs text-gray-600">
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Поддержка локальных видеофайлов и YouTube видео</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Создание таймкодированных заметок с типами и цветовым кодированием</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Экспорт в CSV, JSON, Markdown, Plain Text с превью</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Навигация по заметкам кликом по таймкоду</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Удаление с возможностью восстановления через тост</span>
-                        </div>
-                        <div class="flex items-start space-x-2">
-                            <span class="text-blue-500 font-semibold">•</span>
-                            <span>Управление типами заметок (добавление/удаление)</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Горячие клавиши -->
-                <div class="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
-                    <h4 class="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-                        <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        Горячие клавиши
-                    </h4>
-                    
-                    <div class="grid grid-cols-1 gap-2 text-xs">
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Play/Pause</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+p</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Play/Pause</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Space</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Фокус на поле ввода</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">N</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Добавить заметку</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+Enter</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Перемотка назад (1 сек)</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+←</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Перемотка вперед (1 сек)</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">⌘+→</kbd>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-gray-600">Добавить заметку (Enter)</span>
-                            <kbd class="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-mono">Enter</kbd>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Панель заметок -->
-            <div class="lg:col-span-1">
-                <div class="bg-white rounded-lg shadow-lg p-4 notes-panel">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-gray-800">Заметки</h3>
-                        <button 
-                            id="exportBtnLocal" 
-                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                        >
-                            Экспорт
-                        </button>
-                    </div>
-                    
-                    <!-- Режимы работы (только для YouTube) -->
-                    <div id="modeSelector" class="mb-4 hidden">
-                        <div class="flex items-center justify-between">
-                            <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                                <button 
-                                    id="notesModeBtn" 
-                                    class="px-3 py-1 text-sm font-medium rounded-md transition-colors mode-tab active"
-                                >
-                                    Заметки
-                                </button>
-                                <button 
-                                    id="rangesModeBtn" 
-                                    class="px-3 py-1 text-sm font-medium rounded-md transition-colors mode-tab"
-                                >
-                                    Диапазоны
-                                </button>
-                            </div>
-                            <button 
-                                id="exportBtn" 
-                                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                            >
-                                Экспорт
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Типы заметок -->
-                    <div class="mb-4">
-                        <div class="flex flex-wrap gap-2 mb-2">
-                            <div id="noteTypes" class="flex flex-wrap gap-2">
-                                <!-- Типы будут добавлены динамически -->
-                            </div>
-                            <button 
-                                id="addTypeBtn" 
-                                class="px-3 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200"
-                                title="Добавить тип"
-                            >
-                                + Добавить
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Форма новой заметки -->
-                    <div class="mb-4">
-                        <textarea 
-                            id="noteText" 
-                            placeholder="Введите текст заметки..."
-                            rows="3"
-                            class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        ></textarea>
-                        <div class="mt-2 flex justify-end">
-                            <button 
-                                id="addNoteBtn" 
-                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled
-                            >
-                                Добавить заметку
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Форма диапазонов (только для YouTube) -->
-                    <div id="rangeForm" class="mb-4 hidden">
-                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                            <h4 class="text-sm font-semibold text-yellow-800 mb-3">Создание диапазона</h4>
-                            <div class="space-y-3">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-gray-700">Начало:</span>
-                                    <div class="flex items-center space-x-2">
-                                        <span id="rangeStartTime" class="text-sm font-mono bg-white px-2 py-1 rounded border">00:00:00.000</span>
-                                        <button 
-                                            id="setRangeStartBtn" 
-                                            class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            Установить
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-gray-700">Конец:</span>
-                                    <div class="flex items-center space-x-2">
-                                        <span id="rangeEndTime" class="text-sm font-mono bg-white px-2 py-1 rounded border">00:00:00.000</span>
-                                        <button 
-                                            id="setRangeEndBtn" 
-                                            class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            Установить
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-gray-700">Длительность:</span>
-                                    <span id="rangeDuration" class="text-sm font-mono text-gray-600">00:00:00.000</span>
-                                </div>
-                                <div class="mt-3">
-                                    <input 
-                                        type="text" 
-                                        id="rangeDescription" 
-                                        placeholder="Описание диапазона (необязательно)..."
-                                        class="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    >
-                                </div>
-                                <div class="flex justify-between items-center mt-3">
-                                    <button 
-                                        id="addRangeBtn" 
-                                        class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        disabled
-                                    >
-                                        Добавить диапазон
-                                    </button>
-                                    <button 
-                                        id="clearRangeBtn" 
-                                        class="px-3 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-                                    >
-                                        Очистить
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Список заметок -->
-                    <div id="notesList" class="space-y-2">
-                        <p class="text-gray-500 text-sm text-center py-4">
-                            Загрузите видео, чтобы начать создавать заметки
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="source" id="sourceInfo" hidden>
+      <span class="source-kind" id="sourceKind"></span>
+      <span class="source-title" id="sourceTitle"></span>
     </div>
 
-    <!-- Модальное окно экспорта -->
-    <div id="exportModal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-lg shadow-xl modal-content w-full max-w-md">
-            <div class="p-6">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Экспорт заметок</h3>
-                
-                <!-- Выбор типов -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        Выберите типы заметок:
-                    </label>
-                    <div id="exportTypeCheckboxes" class="space-y-2">
-                        <!-- Чекбоксы будут добавлены динамически -->
-                    </div>
-                    <label class="flex items-center mt-2">
-                        <input type="checkbox" id="exportAllTypes" class="mr-2">
-                        <span class="text-sm text-gray-700">Все типы</span>
-                    </label>
-                </div>
+    <nav class="topbar-actions">
+      <button class="btn btn-sm theme-toggle" id="themeBtn" type="button">
+        <svg class="theme-icon theme-icon-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/><path d="M16.4 23.2 19.7 15.6 23 23.2M17.6 20.6h4.2"/></svg>
+        <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="theme-icon theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="btn btn-ghost btn-sm" id="hotkeysBtn" title="Горячие клавиши (?)" aria-label="Горячие клавиши"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/></svg></button>
+      <button class="btn btn-sm" id="libraryBtn">Мои видео<span class="btn-count" id="libraryCount"></span></button>
+      <button class="btn btn-sm" id="changeSourceBtn" hidden>Другое видео</button>
+      <button class="btn btn-primary btn-sm" id="exportBtn" hidden>Выгрузить</button>
+    </nav>
+  </header>
 
-                <!-- Выбор формата -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        Формат экспорта:
-                    </label>
-                    <select id="exportFormat" class="w-full p-2 border border-gray-300 rounded-lg">
-                        <option value="txt">Plain Text</option>
-                        <option value="csv">CSV</option>
-                        <option value="json">JSON</option>
-                        <option value="markdown">Markdown</option>
-                    </select>
-                </div>
+  <main>
+    <!-- Стартовый экран: выбор видео -->
+    <section class="start" id="startScreen">
+      <div class="hero">
+        <span class="badge">Правки по таймкодам</span>
+        <h1>Смотришь видео — пишешь правки. Таймкод ставится сам.</h1>
+        <p class="lead">Перетащи файл или вставь ссылку. Всё хранится только в этом браузере.</p>
+      </div>
 
-                <!-- Настройки экспорта -->
-                <div class="mb-4">
-                    <label class="flex items-center space-x-2">
-                        <input type="checkbox" id="includeMilliseconds" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
-                        <span class="text-sm text-gray-700">Включить миллисекунды в таймкоды</span>
-                    </label>
-                </div>
+      <div class="attach-hint" id="attachHint" hidden></div>
 
-                <!-- Превью экспорта -->
-                <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        Превью:
-                    </label>
-                    <div class="relative">
-                        <div id="exportPreview" class="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono max-h-40 overflow-y-auto whitespace-pre-wrap">
-                            Выберите типы заметок для просмотра превью
-                        </div>
-                        <button 
-                            id="copyPreviewBtn" 
-                            class="absolute top-2 right-2 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors"
-                            title="Копировать в буфер обмена"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
+      <div class="drop card-3d" id="dropZone">
+        <form class="url-row" id="urlForm" autocomplete="off">
+          <input class="field" id="urlInput" type="text" inputmode="url" spellcheck="false"
+                 placeholder="Ссылка на YouTube или прямая ссылка на .mp4">
+          <button class="btn btn-primary" type="submit">Открыть</button>
+        </form>
+        <div class="drop-or"><span>или</span></div>
+        <label class="drop-file" for="fileInput">
+          <input type="file" id="fileInput" accept="video/*,.mkv,.mov,.zip,.json">
+          <span class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
+          </span>
+          <strong>Выбери видеофайл</strong>
+          <span class="muted">или перетащи его сюда · <kbd>⌘V</kbd> вставит файл или ссылку из буфера</span>
+          <span class="muted small">Прислали архив или notes.json с правками? Перетащи сюда — правки подтянутся.</span>
+        </label>
+        <button class="btn btn-ghost btn-sm back-btn" id="backToVideoBtn" hidden>← Вернуться к текущему видео</button>
+      </div>
 
-                <!-- Кнопки -->
-                <div class="flex justify-end space-x-3">
-                    <button 
-                        id="cancelExport" 
-                        class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-                    >
-                        Отмена
-                    </button>
-                    <button 
-                        id="confirmExport" 
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                    >
-                        Экспортировать
-                    </button>
-                </div>
-            </div>
+      <ol class="steps">
+        <li><b>01</b><span>Открой видео: файл с компьютера, YouTube (и Shorts) или прямая ссылка.</span></li>
+        <li><b>02</b><span>Начни печатать — видео встанет на паузу, момент запомнится. Enter — правка добавлена, видео поехало дальше.</span></li>
+        <li><b>03</b><span>Выгрузи всё разом: скопируй текстом, скачай файлом или отправь ссылку монтажёру.</span></li>
+      </ol>
+
+      <div class="recent" id="recent" hidden>
+        <div class="section-head">
+          <h2 class="label">Недавние</h2>
+          <button class="link-btn" id="recentAllBtn">Все видео →</button>
         </div>
-    </div>
+        <div class="recent-list" id="recentList"></div>
+      </div>
+    </section>
 
-    <!-- Модальное окно добавления типа -->
-    <div id="addTypeModal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm">
-            <div class="p-6">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Добавить тип заметки</h3>
-                <input 
-                    type="text" 
-                    id="newTypeName" 
-                    placeholder="Название типа"
-                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                <div class="flex justify-end space-x-3 mt-4">
-                    <button 
-                        id="cancelAddType" 
-                        class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-                    >
-                        Отмена
-                    </button>
-                    <button 
-                        id="confirmAddType" 
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                    >
-                        Добавить
-                    </button>
-                </div>
+    <!-- Рабочее пространство -->
+    <section class="workspace" id="workspace" hidden>
+      <div class="stage">
+        <div class="player card-3d">
+          <div class="player-frame" id="playerFrame">
+            <video id="video" playsinline controls preload="metadata"></video>
+            <div class="yt-host" id="ytHost"></div>
+            <canvas class="draw-layer" id="drawLayer"></canvas>
+            <div class="draw-bar" id="drawBar" hidden>
+              <div class="segmented" id="drawTools" role="group" aria-label="Инструмент">
+                <button data-tool="pen" title="Карандаш — обвести от руки"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/><path d="m14.5 5.5 3 3"/></svg></button>
+                <button data-tool="ellipse" title="Овал"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="12" rx="9" ry="6.5"/></svg></button>
+                <button data-tool="rect" title="Прямоугольник"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/></svg></button>
+                <button data-tool="arrow" title="Стрелка"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4.5 19.5 14 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 4l-2.6 9.2-2.1-2.5-2.6-2.1z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+              </div>
+              <div class="swatches" id="drawColors"></div>
+              <button class="iconbtn" id="drawUndo" title="Отменить (⌘Z)" aria-label="Отменить"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+              <button class="act" id="drawCapture" hidden title="Браузер не даёт прочитать кадр YouTube или видео с чужого сайта — нужен разовый доступ к этой вкладке">Разрешить снимок кадра</button>
+              <span class="draw-spacer"></span>
+              <button class="btn btn-ghost btn-sm" id="drawCancel">Отмена</button>
+              <button class="btn btn-primary btn-sm" id="drawDone">Готово</button>
             </div>
+          </div>
+
+          <div class="timeline" id="timeline">
+            <div class="tl-track">
+              <div class="tl-progress" id="tlProgress"></div>
+              <div class="tl-sel" id="tlSel" hidden></div>
+              <div class="tl-markers" id="tlMarkers"></div>
+              <div class="tl-head" id="tlHead"></div>
+            </div>
+            <div class="tl-tip" id="tlTip" hidden></div>
+          </div>
+
+          <div class="controls">
+            <div class="ctl-group">
+              <button class="iconbtn" id="backBtn" title="Назад 5 сек (←)" aria-label="Назад 5 секунд">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19 4 12l7-7"/><path d="M20 19l-7-7 7-7"/></svg>
+              </button>
+              <button class="iconbtn iconbtn-lg" id="playBtn" title="Пуск/пауза (пробел)" aria-label="Пуск или пауза">
+                <svg class="i-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>
+                <svg class="i-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="4.5" width="4.2" height="15" rx="1"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1"/></svg>
+              </button>
+              <button class="iconbtn" id="fwdBtn" title="Вперёд 5 сек (→)" aria-label="Вперёд 5 секунд">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 5 7 7-7 7"/><path d="M4 5l7 7-7 7"/></svg>
+              </button>
+              <span class="clock mono" id="clock">00:00 / 00:00</span>
+            </div>
+            <div class="ctl-group">
+              <button class="btn btn-sm" id="drawBtn" title="Обвести на кадре (D)">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                Обвести
+              </button>
+              <div class="segmented" id="speedSeg" role="group" aria-label="Скорость"></div>
+              <label class="switch" title="Ставить видео на паузу, когда начинаешь печатать">
+                <input type="checkbox" id="autopauseToggle">
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+                <span>Автопауза</span>
+              </label>
+            </div>
+          </div>
         </div>
+
+        <p class="hint-line">
+          <kbd>N</kbd> писать · <kbd>Пробел</kbd> пауза · <kbd>←</kbd><kbd>→</kbd> ±5 с · <kbd>⌘←</kbd><kbd>⌘→</kbd> ±1 с ·
+          <kbd>I</kbd><kbd>O</kbd> или протяни по карте — отрезок · <kbd>D</kbd> обвести · <kbd>1–9</kbd> тип · <kbd>E</kbd> выгрузка
+        </p>
+      </div>
+
+      <div class="side">
+        <div class="composer card-3d" id="composer">
+          <div class="types" id="typeChips"></div>
+          <div class="attach" id="attach" hidden>
+            <img id="attachImg" alt="Кадр с пометками">
+            <span><b>Пометки на кадре</b><span class="muted small" id="attachInfo"></span></span>
+            <button class="act" id="attachEdit">Изменить</button>
+            <button class="act act-icon" id="attachRemove" title="Убрать" aria-label="Убрать пометки"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+          <div class="composer-row">
+            <div class="stamp-col">
+              <button class="stamp mono" id="stamp" title="Момент правки. Клик — взять текущий"></button>
+              <div class="range-ctl">
+                <button class="act" id="markInBtn" title="Начало отрезка (I)">I · начало</button>
+                <button class="act" id="markOutBtn" title="Конец отрезка (O)">O · конец</button>
+                <button class="act act-icon" id="rangeClearBtn" title="Сбросить отрезок" aria-label="Сбросить отрезок" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+              </div>
+            </div>
+            <textarea class="field note-input" id="noteInput" rows="2"
+                      placeholder="Что поправить? Enter — добавить, Shift+Enter — новая строка"></textarea>
+            <button class="btn btn-primary add-btn" id="addBtn" disabled>Добавить</button>
+          </div>
+        </div>
+
+        <aside class="panel card-3d">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Правки</h2>
+              <span class="muted small" id="notesCount"></span>
+            </div>
+            <div class="panel-actions">
+              <button class="btn btn-sm" id="copyAllBtn" title="Скопировать все правки текстом">Копировать всё</button>
+            </div>
+          </div>
+          <div class="filters" id="filters"></div>
+          <div class="notes" id="notesList"></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <!-- Выгрузка -->
+  <dialog class="modal modal-wide" id="exportDialog" aria-labelledby="exportTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="exportTitle">Выгрузка</h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="export-grid">
+        <div class="export-opts">
+          <div class="label">Кому и в каком виде</div>
+          <div class="segmented segmented-full formats" id="formatSeg"></div>
+
+          <div id="pathRow">
+            <div class="label">Где лежит видео</div>
+            <input class="field field-sm" id="optPath" type="text" spellcheck="false" placeholder="/Users/…/Видео/ролик.mp4">
+            <p class="field-hint">Само видео в отчёт не кладётся — только путь, чтобы исходник нашли.</p>
+          </div>
+
+          <div class="label">Какие правки</div>
+          <div class="chips" id="exportTypes"></div>
+
+          <div class="label">Настройки</div>
+          <label class="check"><input type="checkbox" id="optShowType"> Показывать тип</label>
+          <label class="check"><input type="checkbox" id="optHideDone"> Без выполненных</label>
+          <label class="check"><input type="checkbox" id="optMs"> Миллисекунды в таймкодах</label>
+          <label class="check" id="optLinksRow"><input type="checkbox" id="optLinks"> Ссылки на момент в YouTube</label>
+          <label class="check"><input type="checkbox" id="optHeader"> Название видео сверху</label>
+        </div>
+        <div class="export-preview">
+          <div class="preview-head">
+            <span class="label">Превью</span>
+            <span class="muted small" id="exportSummary"></span>
+          </div>
+          <pre class="preview mono" id="exportPreview"></pre>
+          <iframe class="preview preview-frame" id="exportFrame" title="Превью отчёта" hidden></iframe>
+          <div class="export-actions">
+            <button class="btn btn-primary" id="exportCopyBtn">Копировать</button>
+            <button class="btn" id="exportDownloadBtn">Скачать файл</button>
+            <button class="btn" id="exportZipBtn" title="Промпт для агента, отчёт для монтажёра, JSON и кадры — без самого видео">Архив .zip</button>
+            <button class="btn" id="exportOpenBtn" hidden>Открыть в новой вкладке</button>
+            <button class="btn btn-ghost" id="exportShareBtn" title="Короткие списки: правки упакованы прямо в ссылку, без кадров. Для длинных — архив">Ссылка с правками</button>
+          </div>
+        </div>
+      </div>
     </div>
-
-    <!-- Тосты -->
-    <div id="toastContainer"></div>
-
-    <script>
-        class VideoNotesApp {
-            constructor() {
-                this.videoPlayer = document.getElementById('videoPlayer');
-                this.videoFileInput = document.getElementById('videoFile');
-                this.speedControl = document.getElementById('speedControl');
-                this.speedDisplay = document.getElementById('speedDisplay');
-                this.autoPauseToggle = document.getElementById('autoPauseToggle');
-                this.autoPauseStatus = document.getElementById('autoPauseStatus');
-                this.noteText = document.getElementById('noteText');
-                this.addNoteBtn = document.getElementById('addNoteBtn');
-                this.exportBtn = document.getElementById('exportBtn');
-                this.exportBtnLocal = document.getElementById('exportBtnLocal');
-                this.notesList = document.getElementById('notesList');
-                this.noteTypes = document.getElementById('noteTypes');
-                this.addTypeBtn = document.getElementById('addTypeBtn');
-                
-                // YouTube элементы
-                this.youtubeUrl = document.getElementById('youtubeUrl');
-                this.loadYoutubeBtn = document.getElementById('loadYoutubeBtn');
-                this.youtubePlayer = document.getElementById('youtubePlayer');
-                this.localVideoTab = document.getElementById('localVideoTab');
-                this.youtubeTab = document.getElementById('youtubeTab');
-                this.localVideoSection = document.getElementById('localVideoSection');
-                this.youtubeSection = document.getElementById('youtubeSection');
-                
-                // Элементы режимов и диапазонов
-                this.modeSelector = document.getElementById('modeSelector');
-                this.notesModeBtn = document.getElementById('notesModeBtn');
-                this.rangesModeBtn = document.getElementById('rangesModeBtn');
-                this.rangeForm = document.getElementById('rangeForm');
-                this.rangeStartTime = document.getElementById('rangeStartTime');
-                this.rangeEndTime = document.getElementById('rangeEndTime');
-                this.rangeDuration = document.getElementById('rangeDuration');
-                this.rangeDescription = document.getElementById('rangeDescription');
-                this.setRangeStartBtn = document.getElementById('setRangeStartBtn');
-                this.setRangeEndBtn = document.getElementById('setRangeEndBtn');
-                this.addRangeBtn = document.getElementById('addRangeBtn');
-                this.clearRangeBtn = document.getElementById('clearRangeBtn');
-                
-                // Модальные окна
-                this.exportModal = document.getElementById('exportModal');
-                this.addTypeModal = document.getElementById('addTypeModal');
-                
-                this.currentVideoFileName = null;
-                this.currentVideoUrl = null;
-                this.currentNotes = [];
-                this.availableTypes = ['Правка', 'Таймкод', 'Хук', 'Шорт', 'Другое' ];
-                this.selectedType = 'Правка';
-                this.isVideoPaused = false;
-                this.lastDeletedNote = null;
-                this.toastTimeout = null;
-                this.autoPauseEnabled = true;
-                this.saveTimeouts = {};
-                this.currentVideoType = 'local'; // 'local' или 'youtube'
-                this.youtubePlayerInstance = null;
-                this.youtubeVideoId = null;
-                this.currentMode = 'notes'; // 'notes' или 'ranges'
-                this.currentRange = {
-                    start: null,
-                    end: null,
-                    startTime: null,
-                    endTime: null
-                };
-                
-                this.init();
-            }
-
-            init() {
-                this.loadTypes();
-                this.setupEventListeners();
-                this.updateAutoPauseStatus();
-                this.updateUI();
-            }
-
-            setupEventListeners() {
-                // Загрузка видео
-                this.videoFileInput.addEventListener('change', (e) => this.handleVideoLoad(e));
-                
-                // YouTube
-                this.youtubeUrl.addEventListener('input', (e) => this.handleYoutubeUrlChange(e));
-                this.loadYoutubeBtn.addEventListener('click', () => this.loadYoutubeVideo());
-                
-                // Переключатели видео
-                this.localVideoTab.addEventListener('click', () => this.switchToLocalVideo());
-                this.youtubeTab.addEventListener('click', () => this.switchToYoutube());
-                
-                // Переключатели режимов
-                this.notesModeBtn.addEventListener('click', () => this.switchToNotesMode());
-                this.rangesModeBtn.addEventListener('click', () => this.switchToRangesMode());
-                
-                // Диапазоны
-                this.setRangeStartBtn.addEventListener('click', () => this.setRangeStart());
-                this.setRangeEndBtn.addEventListener('click', () => this.setRangeEnd());
-                this.addRangeBtn.addEventListener('click', () => this.addRange());
-                this.clearRangeBtn.addEventListener('click', () => this.clearRange());
-                this.rangeDescription.addEventListener('input', () => this.updateRangeButton());
-                
-                // Контрол скорости
-                this.speedControl.addEventListener('input', (e) => this.handleSpeedChange(e));
-                
-                // Переключатель автопаузы
-                this.autoPauseToggle.addEventListener('change', (e) => this.handleAutoPauseToggle(e));
-                
-                // Создание заметки
-                this.noteText.addEventListener('input', (e) => {
-                    if (this.autoPauseEnabled) {
-                        this.pauseVideo();
-                    }
-                    this.updateAddButton();
-                });
-                this.noteText.addEventListener('keydown', (e) => this.handleNoteTextKeydown(e));
-                this.addNoteBtn.addEventListener('click', () => this.addNote());
-                
-                // Экспорт
-                this.exportBtn.addEventListener('click', () => this.showExportModal());
-                this.exportBtnLocal.addEventListener('click', () => this.showExportModal());
-                
-                // Управление типами
-                this.addTypeBtn.addEventListener('click', () => this.showAddTypeModal());
-                
-                // Модальные окна
-                this.setupModalEventListeners();
-                
-                // Горячие клавиши
-                document.addEventListener('keydown', (e) => this.handleHotkeys(e));
-            }
-
-            setupModalEventListeners() {
-                // Экспорт модал
-                document.getElementById('cancelExport').addEventListener('click', () => this.hideExportModal());
-                document.getElementById('confirmExport').addEventListener('click', () => this.exportNotes());
-                document.getElementById('exportAllTypes').addEventListener('change', (e) => this.toggleAllExportTypes(e));
-                document.getElementById('exportFormat').addEventListener('change', () => this.updateExportPreview());
-                document.getElementById('includeMilliseconds').addEventListener('change', () => this.updateExportPreview());
-                document.getElementById('copyPreviewBtn').addEventListener('click', () => this.copyPreviewToClipboard());
-                
-                // Добавление типа модал
-                document.getElementById('cancelAddType').addEventListener('click', () => this.hideAddTypeModal());
-                document.getElementById('confirmAddType').addEventListener('click', () => this.addNewType());
-                
-                // Закрытие модалов по клику вне области
-                this.exportModal.addEventListener('click', (e) => {
-                    if (e.target === this.exportModal) this.hideExportModal();
-                });
-                this.addTypeModal.addEventListener('click', (e) => {
-                    if (e.target === this.addTypeModal) this.hideAddTypeModal();
-                });
-            }
-
-            handleNoteTextKeydown(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!this.addNoteBtn.disabled) {
-                        this.addNote();
-                    }
-                }
-            }
-
-            handleHotkeys(e) {
-                // Закрытие модальных окон по Escape
-                if (e.key === 'Escape') {
-                    if (!this.exportModal.classList.contains('hidden')) {
-                        e.preventDefault();
-                        this.hideExportModal();
-                        return;
-                    }
-                    if (!this.addTypeModal.classList.contains('hidden')) {
-                        e.preventDefault();
-                        this.hideAddTypeModal();
-                        return;
-                    }
-                }
-                
-                // Перемотка с Ctrl + стрелки
-                if (e.ctrlKey || e.metaKey) {
-                    switch(e.key) {
-                        case 'p':
-                            e.preventDefault();
-                            e.stopPropagation();
-                            this.togglePlayPause();
-                            break;
-                        case 'ArrowLeft':
-                            e.preventDefault();
-                            this.seekVideo(-1);
-                            break;
-                        case 'ArrowRight':
-                            e.preventDefault();
-                            this.seekVideo(1);
-                            break;
-                        case 'Enter':
-                            e.preventDefault();
-                            if (!this.addNoteBtn.disabled) {
-                                this.addNote();
-                            }
-                            break;
-                    }
-                    return;
-                }
-
-                // Проверяем, что фокус не на поле ввода заметок и не на видео
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target === this.videoPlayer) return;
-                
-                switch(e.key) {
-                    case ' ':
-                        e.preventDefault();
-                        e.stopPropagation();
-                        this.togglePlayPause();
-                        break;
-                    case 'n':
-                        e.preventDefault();
-                        this.noteText.focus();
-                        break;
-                }
-            }
-
-            seekVideo(seconds) {
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
-                    const newTime = Math.max(0, currentTime + seconds);
-                    this.youtubePlayerInstance.seekTo(newTime, true);
-                } else if (this.currentVideoType === 'local' && this.videoPlayer.src) {
-                    const newTime = Math.max(0, this.videoPlayer.currentTime + seconds);
-                    this.videoPlayer.currentTime = newTime;
-                } else {
-                    return;
-                }
-                
-                // Показываем краткое уведомление о перемотке
-                const direction = seconds > 0 ? 'вперед' : 'назад';
-                this.showToast(`Перемотка ${direction} на 1 сек`, 'info');
-            }
-
-            handleVideoLoad(e) {
-                const file = e.target.files[0];
-                if (!file) return;
-
-                // Предупреждение о смене видео
-                if (this.currentVideoFileName && this.currentNotes.length > 0) {
-                    if (!confirm('При смене видео текущие заметки будут сохранены. Продолжить?')) {
-                        this.videoFileInput.value = '';
-                        return;
-                    }
-                }
-
-                this.currentVideoFileName = file.name;
-                const videoURL = URL.createObjectURL(file);
-                this.videoPlayer.src = videoURL;
-                
-                this.loadNotes();
-                this.updateUI();
-                
-                // Устанавливаем прогресс на последний таймкод после загрузки заметок
-                this.setVideoProgressToLastNote();
-            }
-
-            handleSpeedChange(e) {
-                const speed = parseFloat(e.target.value);
-                this.videoPlayer.playbackRate = speed;
-                this.speedDisplay.textContent = `${speed.toFixed(1)}×`;
-            }
-
-            handleAutoPauseToggle(e) {
-                this.autoPauseEnabled = e.target.checked;
-                this.updateAutoPauseStatus();
-            }
-
-            updateAutoPauseStatus() {
-                if (this.autoPauseEnabled) {
-                    this.autoPauseStatus.textContent = 'Включено';
-                    this.autoPauseStatus.className = 'text-xs text-green-600 font-medium';
-                } else {
-                    this.autoPauseStatus.textContent = 'Выключено';
-                    this.autoPauseStatus.className = 'text-xs text-red-600 font-medium';
-                }
-            }
-
-            // YouTube методы
-            switchToLocalVideo() {
-                this.currentVideoType = 'local';
-                this.localVideoTab.classList.add('active');
-                this.youtubeTab.classList.remove('active');
-                this.localVideoSection.classList.remove('hidden');
-                this.youtubeSection.classList.add('hidden');
-                this.videoPlayer.classList.remove('hidden');
-                this.youtubePlayer.classList.add('hidden');
-                this.modeSelector.classList.add('hidden');
-                this.exportBtnLocal.classList.remove('hidden');
-                this.switchToNotesMode(); // Переключаемся на режим заметок
-                this.loadNotes(); // Перезагружаем заметки при переключении типа видео
-                this.updateUI();
-            }
-
-            switchToYoutube() {
-                this.currentVideoType = 'youtube';
-                this.youtubeTab.classList.add('active');
-                this.localVideoTab.classList.remove('active');
-                this.youtubeSection.classList.remove('hidden');
-                this.localVideoSection.classList.add('hidden');
-                this.videoPlayer.classList.add('hidden');
-                this.youtubePlayer.classList.remove('hidden');
-                this.modeSelector.classList.remove('hidden');
-                this.exportBtnLocal.classList.add('hidden');
-                this.loadNotes(); // Перезагружаем заметки при переключении типа видео
-                this.updateUI();
-            }
-
-            handleYoutubeUrlChange(e) {
-                const url = e.target.value.trim();
-                const isValid = this.isValidYoutubeUrl(url);
-                this.loadYoutubeBtn.disabled = !isValid;
-            }
-
-            isValidYoutubeUrl(url) {
-                const patterns = [
-                    /^https?:\/\/(www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
-                    /^https?:\/\/youtu\.be\/([a-zA-Z0-9_-]{11})/,
-                    /^https?:\/\/(www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/
-                ];
-                return patterns.some(pattern => pattern.test(url));
-            }
-
-            extractVideoId(url) {
-                const patterns = [
-                    /[?&]v=([a-zA-Z0-9_-]{11})/,
-                    /youtu\.be\/([a-zA-Z0-9_-]{11})/,
-                    /embed\/([a-zA-Z0-9_-]{11})/
-                ];
-                
-                for (const pattern of patterns) {
-                    const match = url.match(pattern);
-                    if (match) return match[1];
-                }
-                return null;
-            }
-
-            loadYoutubeVideo() {
-                const url = this.youtubeUrl.value.trim();
-                if (!this.isValidYoutubeUrl(url)) {
-                    this.showToast('Неверная ссылка на YouTube видео', 'error');
-                    return;
-                }
-
-                const videoId = this.extractVideoId(url);
-                if (!videoId) {
-                    this.showToast('Не удалось извлечь ID видео', 'error');
-                    return;
-                }
-
-                // Предупреждение о смене видео
-                if (this.currentVideoFileName && this.currentNotes.length > 0) {
-                    if (!confirm('При смене видео текущие заметки будут сохранены. Продолжить?')) {
-                        return;
-                    }
-                }
-
-                this.youtubeVideoId = videoId;
-                this.currentVideoFileName = `youtube_${videoId}`;
-                this.currentVideoUrl = url;
-                
-                this.loadYoutubePlayer(videoId);
-                this.loadNotes();
-                this.updateUI();
-            }
-
-            loadYoutubePlayer(videoId) {
-                // Очищаем предыдущий плеер
-                this.youtubePlayer.innerHTML = '';
-                
-                // Создаем iframe для YouTube
-                const iframe = document.createElement('iframe');
-                iframe.className = 'youtube-iframe';
-                iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${window.location.origin}`;
-                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-                iframe.allowFullscreen = true;
-                
-                this.youtubePlayer.appendChild(iframe);
-                
-                // Инициализируем YouTube Player API
-                if (window.YT && window.YT.Player) {
-                    this.initializeYoutubePlayer(videoId);
-                } else {
-                    // Ждем загрузки YouTube API
-                    window.onYouTubeIframeAPIReady = () => {
-                        this.initializeYoutubePlayer(videoId);
-                    };
-                }
-            }
-
-            initializeYoutubePlayer(videoId) {
-                this.youtubePlayerInstance = new YT.Player(this.youtubePlayer.querySelector('iframe'), {
-                    videoId: videoId,
-                    events: {
-                        'onReady': (event) => {
-                            console.log('YouTube player ready');
-                            this.setVideoProgressToLastNote();
-                        },
-                        'onStateChange': (event) => {
-                            // Обработка изменений состояния плеера
-                            if (event.data === YT.PlayerState.PAUSED) {
-                                this.isVideoPaused = true;
-                            } else if (event.data === YT.PlayerState.PLAYING) {
-                                this.isVideoPaused = false;
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Методы для работы с режимами
-            switchToNotesMode() {
-                this.currentMode = 'notes';
-                this.notesModeBtn.classList.add('active');
-                this.rangesModeBtn.classList.remove('active');
-                this.noteText.parentElement.classList.remove('hidden');
-                this.rangeForm.classList.add('hidden');
-                this.loadNotes(); // Перезагружаем заметки при переключении режима
-                this.updateUI();
-            }
-
-            switchToRangesMode() {
-                this.currentMode = 'ranges';
-                this.rangesModeBtn.classList.add('active');
-                this.notesModeBtn.classList.remove('active');
-                this.noteText.parentElement.classList.add('hidden');
-                this.rangeForm.classList.remove('hidden');
-                this.loadNotes(); // Перезагружаем заметки при переключении режима
-                this.updateUI();
-            }
-
-            // Методы для работы с диапазонами
-            setRangeStart() {
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
-                    this.currentRange.start = currentTime;
-                    this.currentRange.startTime = this.formatTimecode(currentTime);
-                    this.rangeStartTime.textContent = this.currentRange.startTime;
-                    this.updateRangeDuration();
-                    this.updateRangeButtons();
-                    this.showToast(`Начало диапазона: ${this.currentRange.startTime}`, 'info');
-                }
-            }
-
-            setRangeEnd() {
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    const currentTime = this.youtubePlayerInstance.getCurrentTime();
-                    this.currentRange.end = currentTime;
-                    this.currentRange.endTime = this.formatTimecode(currentTime);
-                    this.rangeEndTime.textContent = this.currentRange.endTime;
-                    this.updateRangeDuration();
-                    this.updateRangeButtons();
-                    this.showToast(`Конец диапазона: ${this.currentRange.endTime}`, 'info');
-                }
-            }
-
-            updateRangeDuration() {
-                if (this.currentRange.start !== null && this.currentRange.end !== null) {
-                    const duration = Math.abs(this.currentRange.end - this.currentRange.start);
-                    this.rangeDuration.textContent = this.formatTimecode(duration);
-                } else {
-                    this.rangeDuration.textContent = '00:00:00.000';
-                }
-            }
-
-            updateRangeButtons() {
-                const hasStart = this.currentRange.start !== null;
-                const hasEnd = this.currentRange.end !== null;
-                
-                this.setRangeEndBtn.disabled = !hasStart;
-                this.addRangeBtn.disabled = !hasStart || !hasEnd;
-            }
-
-            updateRangeButton() {
-                this.updateRangeButtons();
-            }
-
-            clearRange() {
-                this.currentRange = {
-                    start: null,
-                    end: null,
-                    startTime: null,
-                    endTime: null
-                };
-                this.rangeStartTime.textContent = '00:00:00.000';
-                this.rangeEndTime.textContent = '00:00:00.000';
-                this.rangeDuration.textContent = '00:00:00.000';
-                this.rangeDescription.value = '';
-                this.updateRangeButtons();
-            }
-
-            addRange() {
-                if (!this.currentRange.start || !this.currentRange.end) {
-                    return;
-                }
-
-                const description = this.rangeDescription.value.trim() || 'Диапазон времени';
-                const startTime = Math.min(this.currentRange.start, this.currentRange.end);
-                const endTime = Math.max(this.currentRange.start, this.currentRange.end);
-                const duration = endTime - startTime;
-
-                const range = {
-                    id: this.generateId(),
-                    type: 'range',
-                    rangeType: 'Таймкод', // Тип диапазона
-                    startSeconds: startTime,
-                    endSeconds: endTime,
-                    startTimecode: this.formatTimecode(startTime),
-                    endTimecode: this.formatTimecode(endTime),
-                    duration: duration,
-                    durationTimecode: this.formatTimecode(duration),
-                    description: description,
-                    // Для совместимости с существующим кодом
-                    seconds: startTime,
-                    timecode: `${this.formatTimecode(startTime)} - ${this.formatTimecode(endTime)}`,
-                    text: description
-                };
-
-                this.currentNotes.push(range);
-                this.currentNotes.sort((a, b) => b.seconds - a.seconds);
-                
-                this.saveNotes();
-                this.renderNotes();
-                this.clearRange();
-                this.showToast(`Диапазон добавлен: ${range.startTimecode} - ${range.endTimecode}`, 'success');
-            }
-
-            pauseVideo() {
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    if (this.youtubePlayerInstance.getPlayerState() === YT.PlayerState.PLAYING) {
-                        this.youtubePlayerInstance.pauseVideo();
-                        this.isVideoPaused = true;
-                    }
-                } else if (this.currentVideoType === 'local') {
-                    if (!this.videoPlayer.paused) {
-                        this.videoPlayer.pause();
-                        this.isVideoPaused = true;
-                    }
-                }
-            }
-
-            togglePlayPause() {
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    const state = this.youtubePlayerInstance.getPlayerState();
-                    if (state === YT.PlayerState.PLAYING) {
-                        this.youtubePlayerInstance.pauseVideo();
-                        this.isVideoPaused = true;
-                    } else {
-                        this.youtubePlayerInstance.playVideo();
-                        this.isVideoPaused = false;
-                    }
-                } else if (this.currentVideoType === 'local') {
-                    if (this.videoPlayer.paused) {
-                        this.videoPlayer.play();
-                        this.isVideoPaused = false;
-                    } else {
-                        this.videoPlayer.pause();
-                        this.isVideoPaused = true;
-                    }
-                }
-            }
-
-            updateAddButton() {
-                const hasText = this.noteText.value.trim().length > 0;
-                this.addNoteBtn.disabled = !hasText || !this.currentVideoFileName;
-            }
-
-            addNote() {
-                const text = this.noteText.value.trim();
-                if (!text || !this.currentVideoFileName) return;
-
-                let currentTime;
-                if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                    currentTime = this.youtubePlayerInstance.getCurrentTime();
-                } else if (this.currentVideoType === 'local') {
-                    currentTime = this.videoPlayer.currentTime;
-                } else {
-                    return;
-                }
-
-                const timecode = this.formatTimecode(currentTime);
-                
-                const note = {
-                    id: this.generateId(),
-                    seconds: currentTime,
-                    timecode: timecode,
-                    type: this.selectedType,
-                    text: text
-                };
-
-                this.currentNotes.push(note);
-                this.currentNotes.sort((a, b) => b.seconds - a.seconds); // Сортировка по убыванию времени
-                
-                this.saveNotes();
-                this.renderNotes();
-                this.noteText.value = '';
-                this.updateAddButton();
-                
-                // Продолжаем воспроизведение видео
-                if (this.isVideoPaused) {
-                    if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                        this.youtubePlayerInstance.playVideo();
-                        this.isVideoPaused = false;
-                    } else if (this.currentVideoType === 'local') {
-                        this.videoPlayer.play();
-                        this.isVideoPaused = false;
-                    }
-                }
-            }
-
-            formatTimecode(seconds) {
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                const secs = Math.floor(seconds % 60);
-                const milliseconds = Math.floor((seconds % 1) * 1000);
-                
-                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
-            }
-
-            generateId() {
-                return Date.now().toString(36) + Math.random().toString(36).substr(2);
-            }
-
-            renderNotes() {
-                if (this.currentNotes.length === 0) {
-                    this.notesList.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">Нет заметок</p>';
-                    return;
-                }
-
-                const notesHTML = this.currentNotes.map(note => {
-                    if (note.type === 'range') {
-                        return `
-                            <div class="note-item range-item p-3 rounded-lg fade-in group" data-note-id="${note.id}">
-                                <div class="flex items-start justify-between mb-2">
-                                    <div class="flex flex-col">
-                                        <span class="range-timecode text-sm font-mono" data-seconds="${note.startSeconds}">
-                                            ${note.startTimecode} - ${note.endTimecode}
-                                        </span>
-                                        <span class="range-duration text-xs mt-1">
-                                            Длительность: ${note.durationTimecode}
-                                        </span>
-                                    </div>
-                                    <div class="flex items-center space-x-2">
-                                        <span class="text-xs px-2 py-1 bg-yellow-200 text-yellow-800 rounded-full">
-                                            ${note.rangeType || 'Диапазон'}
-                                        </span>
-                                        <button 
-                                            class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-                                            data-note-id="${note.id}"
-                                            title="Удалить диапазон"
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="note-content">
-                                    <textarea 
-                                        class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        rows="2"
-                                        data-note-id="${note.id}"
-                                        placeholder="Описание диапазона (необязательно)..."
-                                    >${this.escapeHtml(note.description)}</textarea>
-                                </div>
-                                <div class="mt-1 flex justify-end">
-                                    <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        return `
-                            <div class="note-item p-3 bg-gray-100 rounded-lg fade-in group" data-note-id="${note.id}">
-                                <div class="flex items-start justify-between mb-2">
-                                    <span class="timecode-link text-sm font-mono" data-seconds="${note.seconds}">
-                                        ${note.timecode}
-                                    </span>
-                                    <div class="flex items-center space-x-2">
-                                        <select 
-                                            class="note-type-select text-xs px-2 py-1 rounded-full border-0 focus:ring-2 focus:ring-blue-500 type-${this.getTypeClass(note.type)}"
-                                            data-note-id="${note.id}"
-                                        >
-                                            ${this.availableTypes.map(type => 
-                                                `<option value="${type}" ${type === note.type ? 'selected' : ''}>${type}</option>`
-                                            ).join('')}
-                                        </select>
-                                        <button 
-                                            class="delete-btn text-red-500 hover:text-red-700 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-                                            data-note-id="${note.id}"
-                                            title="Удалить заметку"
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="note-content">
-                                    <textarea 
-                                        class="note-text-edit w-full p-2 text-sm bg-white rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        rows="2"
-                                        data-note-id="${note.id}"
-                                        placeholder="Введите текст заметки..."
-                                    >${this.escapeHtml(note.text)}</textarea>
-                                </div>
-                                <div class="mt-1 flex justify-end">
-                                    <span class="save-status text-xs text-gray-400" data-note-id="${note.id}"></span>
-                                </div>
-                            </div>
-                        `;
-                    }
-                }).join('');
-
-                this.notesList.innerHTML = notesHTML;
-
-                // Добавляем обработчики кликов по таймкодам
-                this.notesList.querySelectorAll('.timecode-link').forEach(link => {
-                    link.addEventListener('click', (e) => {
-                        const seconds = parseFloat(e.target.dataset.seconds);
-                        if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                            this.youtubePlayerInstance.seekTo(seconds, true);
-                            this.youtubePlayerInstance.playVideo();
-                        } else if (this.currentVideoType === 'local') {
-                            this.videoPlayer.currentTime = seconds;
-                            this.videoPlayer.play();
-                        }
-                    });
-                });
-
-                // Добавляем обработчики кликов по диапазонам
-                this.notesList.querySelectorAll('.range-timecode').forEach(link => {
-                    link.addEventListener('click', (e) => {
-                        const seconds = parseFloat(e.target.dataset.seconds);
-                        if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                            this.youtubePlayerInstance.seekTo(seconds, true);
-                            this.youtubePlayerInstance.playVideo();
-                        } else if (this.currentVideoType === 'local') {
-                            this.videoPlayer.currentTime = seconds;
-                            this.videoPlayer.play();
-                        }
-                    });
-                });
-
-                // Добавляем обработчики удаления заметок
-                this.notesList.querySelectorAll('.delete-btn').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const noteId = e.target.dataset.noteId;
-                        this.deleteNote(noteId);
-                    });
-                });
-
-                // Добавляем обработчики редактирования заметок с дебаунсом
-                this.notesList.querySelectorAll('.note-text-edit').forEach(textarea => {
-                    textarea.addEventListener('input', (e) => {
-                        const noteId = e.target.dataset.noteId;
-                        this.debouncedSaveNote(noteId);
-                    });
-                });
-
-                // Добавляем обработчики изменения типа заметки
-                this.notesList.querySelectorAll('.note-type-select').forEach(select => {
-                    select.addEventListener('change', (e) => {
-                        const noteId = e.target.dataset.noteId;
-                        const newType = e.target.value;
-                        this.changeNoteType(noteId, newType);
-                    });
-                });
-            }
-
-            escapeHtml(text) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
-
-            getTypeClass(type) {
-                // Получаем индекс типа в массиве availableTypes
-                const typeIndex = this.availableTypes.indexOf(type);
-                return typeIndex >= 0 ? typeIndex : 0; // Если тип не найден, используем первый цвет
-            }
-
-            deleteNote(noteId) {
-                const noteIndex = this.currentNotes.findIndex(note => note.id === noteId);
-                if (noteIndex === -1) return;
-
-                // Сохраняем удаляемую заметку для возможного восстановления
-                this.lastDeletedNote = this.currentNotes[noteIndex];
-                
-                // Удаляем заметку
-                this.currentNotes.splice(noteIndex, 1);
-                this.saveNotes();
-                this.renderNotes();
-                
-                // Показываем тост с возможностью восстановления
-                this.showRestoreToast();
-            }
-
-            debouncedSaveNote(noteId) {
-                // Очищаем предыдущий таймаут для этой заметки
-                if (this.saveTimeouts[noteId]) {
-                    clearTimeout(this.saveTimeouts[noteId]);
-                }
-
-                // Показываем статус "Сохранение..."
-                this.updateSaveStatus(noteId, 'Сохранение...', 'text-yellow-500');
-
-                // Устанавливаем новый таймаут
-                this.saveTimeouts[noteId] = setTimeout(() => {
-                    this.saveNote(noteId);
-                }, 1000); // 1 секунда дебаунс
-            }
-
-            saveNote(noteId) {
-                const textarea = this.notesList.querySelector(`textarea[data-note-id="${noteId}"]`);
-                if (!textarea) return;
-
-                const newText = textarea.value.trim();
-
-                // Находим заметку в массиве
-                const note = this.currentNotes.find(n => n.id === noteId);
-                if (note) {
-                    if (note.type === 'range') {
-                        note.description = newText;
-                        note.text = newText; // Для совместимости
-                    } else {
-                        note.text = newText;
-                    }
-                    this.saveNotes();
-                    this.updateSaveStatus(noteId, 'Сохранено', 'text-green-500');
-                    
-                    // Скрываем статус через 2 секунды
-                    setTimeout(() => {
-                        this.updateSaveStatus(noteId, '', '');
-                    }, 2000);
-                }
-            }
-
-            updateSaveStatus(noteId, text, className) {
-                const statusElement = this.notesList.querySelector(`.save-status[data-note-id="${noteId}"]`);
-                if (statusElement) {
-                    statusElement.textContent = text;
-                    statusElement.className = `save-status text-xs ${className}`;
-                }
-            }
-
-            changeNoteType(noteId, newType) {
-                // Находим заметку в массиве
-                const note = this.currentNotes.find(n => n.id === noteId);
-                if (note) {
-                    note.type = newType;
-                    this.saveNotes();
-                    
-                    // Обновляем стиль селекта
-                    const select = this.notesList.querySelector(`select[data-note-id="${noteId}"]`);
-                    if (select) {
-                        // Удаляем старые классы типа
-                        select.className = select.className.replace(/type-\d+/g, '');
-                        // Добавляем новый класс типа
-                        select.classList.add(`type-${this.getTypeClass(newType)}`);
-                    }
-                    
-                    // Показываем краткое уведомление
-                    this.showToast(`Тип изменен на: ${newType}`, 'info');
-                }
-            }
-
-            setVideoProgressToLastNote() {
-                if (!this.currentNotes || this.currentNotes.length === 0) return;
-
-                // Находим заметку с максимальным временем (последнюю по таймкоду)
-                const lastNote = this.currentNotes.reduce((latest, note) => {
-                    return note.seconds > latest.seconds ? note : latest;
-                });
-
-                if (lastNote) {
-                    if (this.currentVideoType === 'youtube' && this.youtubePlayerInstance) {
-                        // Для YouTube устанавливаем время сразу, так как плеер уже готов
-                        this.youtubePlayerInstance.seekTo(lastNote.seconds, true);
-                        this.showToast(`Переход к последней заметке: ${lastNote.timecode}`, 'info');
-                    } else if (this.currentVideoType === 'local') {
-                        // Ждем, пока видео загрузится, затем устанавливаем время
-                        this.videoPlayer.addEventListener('loadedmetadata', () => {
-                            this.videoPlayer.currentTime = lastNote.seconds;
-                            this.showToast(`Переход к последней заметке: ${lastNote.timecode}`, 'info');
-                        }, { once: true });
-                    }
-                }
-            }
-
-            showRestoreToast() {
-                // Удаляем предыдущий тост, если есть
-                this.hideToast();
-                
-                const toastContainer = document.getElementById('toastContainer');
-                const toast = document.createElement('div');
-                toast.className = 'toast';
-                toast.innerHTML = `
-                    <div class="toast-content">
-                        <div class="toast-message">
-                            <strong>Заметка удалена</strong><br>
-                            <span class="text-sm text-gray-600">${this.lastDeletedNote.type}: ${this.lastDeletedNote.text.substring(0, 50)}${this.lastDeletedNote.text.length > 50 ? '...' : ''}</span>
-                        </div>
-                        <div class="toast-actions">
-                            <button class="toast-btn toast-restore" onclick="app.restoreLastDeletedNote()">
-                                Восстановить
-                            </button>
-                            <button class="toast-btn toast-dismiss" onclick="app.hideToast()">
-                                ✕
-                            </button>
-                        </div>
-                    </div>
-                `;
-                
-                toastContainer.appendChild(toast);
-                
-                // Показываем тост с анимацией
-                setTimeout(() => toast.classList.add('show'), 100);
-                
-                // Автоматически скрываем через 5 секунд
-                this.toastTimeout = setTimeout(() => {
-                    this.hideToast();
-                }, 5000);
-            }
-
-            hideToast() {
-                const toastContainer = document.getElementById('toastContainer');
-                const toast = toastContainer.querySelector('.toast');
-                if (toast) {
-                    toast.classList.remove('show');
-                    setTimeout(() => {
-                        if (toast.parentNode) {
-                            toast.parentNode.removeChild(toast);
-                        }
-                    }, 300);
-                }
-                
-                if (this.toastTimeout) {
-                    clearTimeout(this.toastTimeout);
-                    this.toastTimeout = null;
-                }
-            }
-
-            restoreLastDeletedNote() {
-                if (this.lastDeletedNote) {
-                    // Восстанавливаем заметку в правильном порядке по времени (новые сверху)
-                    this.currentNotes.push(this.lastDeletedNote);
-                    this.currentNotes.sort((a, b) => b.seconds - a.seconds);
-                    
-                    this.saveNotes();
-                    this.renderNotes();
-                    this.hideToast();
-                    
-                    // Показываем краткое уведомление о восстановлении
-                    this.showToast('Заметка восстановлена', 'success');
-                }
-            }
-
-            showToast(message, type = 'info') {
-                this.hideToast();
-                
-                const toastContainer = document.getElementById('toastContainer');
-                const toast = document.createElement('div');
-                toast.className = 'toast';
-                
-                const typeClass = type === 'success' ? 'toast-restore' : 'toast-dismiss';
-                
-                toast.innerHTML = `
-                    <div class="toast-content">
-                        <div class="toast-message">
-                            ${message}
-                        </div>
-                        <div class="toast-actions">
-                            <button class="toast-btn ${typeClass}" onclick="app.hideToast()">
-                                ✕
-                            </button>
-                        </div>
-                    </div>
-                `;
-                
-                toastContainer.appendChild(toast);
-                setTimeout(() => toast.classList.add('show'), 100);
-                
-                // Автоматически скрываем через 5 секунд
-                this.toastTimeout = setTimeout(() => {
-                    this.hideToast();
-                }, 5000);
-            }
-
-            loadTypes() {
-                const savedTypes = localStorage.getItem('notes::types');
-                if (savedTypes) {
-                    this.availableTypes = JSON.parse(savedTypes);
-                }
-                this.renderTypes();
-            }
-
-            saveTypes() {
-                localStorage.setItem('notes::types', JSON.stringify(this.availableTypes));
-            }
-
-            renderTypes() {
-                this.noteTypes.innerHTML = this.availableTypes.map(type => `
-                    <div class="flex items-center group">
-                        <button 
-                            class="type-chip px-3 py-1 text-sm rounded-full border type-${this.getTypeClass(type)} hover:opacity-80 ${type === this.selectedType ? 'active' : ''}"
-                            data-type="${type}"
-                        >
-                            ${type}
-                        </button>
-                        ${this.availableTypes.length > 1 ? `
-                            <button 
-                                class="ml-1 text-red-500 hover:text-red-700 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                                data-type="${type}"
-                                title="Удалить тип"
-                            >
-                                ✕
-                            </button>
-                        ` : ''}
-                    </div>
-                `).join('');
-
-                // Добавляем обработчики выбора типа
-                this.noteTypes.querySelectorAll('.type-chip').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        this.selectedType = e.target.dataset.type;
-                        this.renderTypes();
-                    });
-                });
-
-                // Добавляем обработчики удаления типа
-                this.noteTypes.querySelectorAll('button[title="Удалить тип"]').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const typeToRemove = e.target.dataset.type;
-                        this.removeType(typeToRemove);
-                    });
-                });
-            }
-
-            showAddTypeModal() {
-                this.addTypeModal.classList.remove('hidden');
-                document.getElementById('newTypeName').focus();
-            }
-
-            hideAddTypeModal() {
-                this.addTypeModal.classList.add('hidden');
-                document.getElementById('newTypeName').value = '';
-            }
-
-            addNewType() {
-                const typeName = document.getElementById('newTypeName').value.trim();
-                if (!typeName || this.availableTypes.includes(typeName)) return;
-
-                this.availableTypes.push(typeName);
-                this.selectedType = typeName;
-                this.saveTypes();
-                this.renderTypes();
-                this.hideAddTypeModal();
-            }
-
-            removeType(typeToRemove) {
-                if (this.availableTypes.length <= 1) {
-                    alert('Нельзя удалить последний тип заметки');
-                    return;
-                }
-
-                if (confirm(`Удалить тип "${typeToRemove}"? Все заметки этого типа будут переведены в первый доступный тип.`)) {
-                    // Находим индекс удаляемого типа
-                    const typeIndex = this.availableTypes.indexOf(typeToRemove);
-                    if (typeIndex === -1) return;
-
-                    // Удаляем тип из списка
-                    this.availableTypes.splice(typeIndex, 1);
-
-                    // Если удаляемый тип был выбран, выбираем первый доступный
-                    if (this.selectedType === typeToRemove) {
-                        this.selectedType = this.availableTypes[0];
-                    }
-
-                    // Обновляем все заметки этого типа на первый доступный тип
-                    this.currentNotes.forEach(note => {
-                        if (note.type === typeToRemove) {
-                            note.type = this.availableTypes[0];
-                        }
-                    });
-
-                    this.saveTypes();
-                    this.saveNotes();
-                    this.renderTypes();
-                    this.renderNotes();
-                }
-            }
-
-            loadNotes() {
-                console.log('Loading notes for video:', this.currentVideoFileName);
-                if (!this.currentVideoFileName) {
-                    this.currentNotes = [];
-                    console.log('No video file name, clearing notes');
-                    return;
-                }
-
-                const key = `notes::${this.currentVideoFileName}`;
-                const saved = localStorage.getItem(key);
-                console.log('Loading from key:', key, 'Saved data:', saved);
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    this.currentNotes = data.notes || [];
-                    console.log('Loaded notes:', this.currentNotes);
-                } else {
-                    this.currentNotes = [];
-                    console.log('No saved data, clearing notes');
-                }
-                this.renderNotes();
-            }
-
-            saveNotes() {
-                if (!this.currentVideoFileName) return;
-
-                const key = `notes::${this.currentVideoFileName}`;
-                const data = {
-                    videoFileName: this.currentVideoFileName,
-                    notes: this.currentNotes
-                };
-                localStorage.setItem(key, JSON.stringify(data));
-            }
-
-            showExportModal() {
-                this.renderExportTypeCheckboxes();
-                this.exportModal.classList.remove('hidden');
-                this.updateExportPreview();
-            }
-
-            hideExportModal() {
-                this.exportModal.classList.add('hidden');
-            }
-
-            renderExportTypeCheckboxes() {
-                const container = document.getElementById('exportTypeCheckboxes');
-                const types = [...this.availableTypes];
-                
-                // Добавляем "Диапазон" если есть диапазоны в заметках
-                const hasRanges = this.currentNotes.some(note => note.type === 'range');
-                if (hasRanges) {
-                    types.push('Диапазон');
-                }
-                
-                container.innerHTML = types.map(type => `
-                    <label class="flex items-center">
-                        <input type="checkbox" class="mr-2 export-type-checkbox" value="${type}" checked>
-                        <span class="text-sm text-gray-700">${type}</span>
-                    </label>
-                `).join('');
-
-                // Добавляем обработчики для обновления превью
-                container.querySelectorAll('.export-type-checkbox').forEach(checkbox => {
-                    checkbox.addEventListener('change', () => this.updateExportPreview());
-                });
-            }
-
-            toggleAllExportTypes(e) {
-                const checkboxes = document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]');
-                checkboxes.forEach(checkbox => {
-                    checkbox.checked = e.target.checked;
-                });
-                this.updateExportPreview();
-            }
-
-            updateExportPreview() {
-                const selectedTypes = Array.from(document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]:checked'))
-                    .map(cb => cb.value);
-                
-                if (selectedTypes.length === 0) {
-                    document.getElementById('exportPreview').textContent = 'Выберите хотя бы один тип заметок';
-                    return;
-                }
-
-                const filteredNotes = this.currentNotes.filter(note => {
-                    if (note.type === 'range') {
-                        return selectedTypes.includes('range') || selectedTypes.includes('Диапазон');
-                    }
-                    return selectedTypes.includes(note.type);
-                });
-                
-                if (filteredNotes.length === 0) {
-                    document.getElementById('exportPreview').textContent = 'Нет заметок выбранных типов';
-                    return;
-                }
-
-                // Сортируем заметки в хронологическом порядке для превью
-                const sortedNotes = filteredNotes.sort((a, b) => a.seconds - b.seconds);
-
-                const format = document.getElementById('exportFormat').value;
-                const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
-                
-                let preview = '';
-                switch(format) {
-                    case 'csv':
-                        preview = this.generateCSVPreview(sortedNotes, includeMilliseconds);
-                        break;
-                    case 'json':
-                        preview = this.generateJSONPreview(sortedNotes, includeMilliseconds);
-                        break;
-                    case 'markdown':
-                        preview = this.generateMarkdownPreview(sortedNotes, includeMilliseconds);
-                        break;
-                    case 'txt':
-                        preview = this.generatePlainTextPreview(sortedNotes, includeMilliseconds);
-                        break;
-                }
-
-                document.getElementById('exportPreview').textContent = preview;
-            }
-
-            async copyPreviewToClipboard() {
-                const previewElement = document.getElementById('exportPreview');
-                const previewText = previewElement.textContent;
-                
-                if (!previewText || previewText === 'Выберите типы заметок для просмотра превью' || 
-                    previewText === 'Выберите хотя бы один тип заметок' || 
-                    previewText === 'Нет заметок выбранных типов') {
-                    return;
-                }
-                
-                try {
-                    await navigator.clipboard.writeText(previewText);
-                    this.showToast('Скопировано в буфер обмена', 'success');
-                } catch (err) {
-                    console.error('Ошибка при копировании:', err);
-                    this.showToast('Ошибка при копировании', 'error');
-                }
-            }
-
-            formatTimecodeForExport(seconds, includeMilliseconds) {
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                const secs = Math.floor(seconds % 60);
-                const milliseconds = Math.floor((seconds % 1) * 1000);
-                
-                if (includeMilliseconds) {
-                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
-                } else {
-                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-                }
-            }
-
-            generateCSVPreview(notes, includeMilliseconds) {
-                const headers = ['timecode', 'seconds', 'type', 'text', 'start_time', 'end_time', 'duration'];
-                const rows = notes.map(note => {
-                    if (note.type === 'range') {
-                        return [
-                            `"${note.startTimecode} - ${note.endTimecode}"`,
-                            note.startSeconds,
-                            `"${note.rangeType || 'Диапазон'}"`,
-                            `"${note.description.replace(/"/g, '""')}"`,
-                            `"${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)}"`,
-                            `"${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}"`,
-                            `"${note.durationTimecode}"`
-                        ];
-                    } else {
-                        return [
-                            `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
-                            note.seconds,
-                            `"${note.type}"`,
-                            `"${note.text.replace(/"/g, '""')}"`,
-                            '',
-                            '',
-                            ''
-                        ];
-                    }
-                });
-                
-                return [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-            }
-
-            generateJSONPreview(notes, includeMilliseconds) {
-                const previewNotes = notes.map(note => {
-                    if (note.type === 'range') {
-                        return {
-                            id: note.id,
-                            type: 'range',
-                            startTimecode: this.formatTimecodeForExport(note.startSeconds, includeMilliseconds),
-                            endTimecode: this.formatTimecodeForExport(note.endSeconds, includeMilliseconds),
-                            startSeconds: note.startSeconds,
-                            endSeconds: note.endSeconds,
-                            duration: note.duration,
-                            durationTimecode: note.durationTimecode,
-                            description: note.description
-                        };
-                    } else {
-                        return {
-                            id: note.id,
-                            timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
-                            seconds: note.seconds,
-                            type: note.type,
-                            text: note.text
-                        };
-                    }
-                });
-                
-                return JSON.stringify(previewNotes, null, 2);
-            }
-
-            generateMarkdownPreview(notes, includeMilliseconds) {
-                const preview = [
-                    `# Notes — ${this.currentVideoFileName}`,
-                    '',
-                    ...notes.map(note => {
-                        if (note.type === 'range') {
-                            return `- **${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}** *(Диапазон, ${note.durationTimecode})* — ${note.description}`;
-                        } else {
-                            return `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`;
-                        }
-                    })
-                ];
-                
-                return preview.join('\n');
-            }
-
-            generatePlainTextPreview(notes, includeMilliseconds) {
-                const preview = notes.map(note => {
-                    if (note.type === 'range') {
-                        return `[${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}] (Диапазон, ${note.durationTimecode}) ${note.description}`;
-                    } else {
-                        return `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`;
-                    }
-                });
-                
-                return preview.join('\n');
-            }
-
-            exportNotes() {
-                const selectedTypes = Array.from(document.querySelectorAll('#exportTypeCheckboxes input[type="checkbox"]:checked'))
-                    .map(cb => cb.value);
-                
-                console.log('Selected types:', selectedTypes);
-                console.log('Current notes:', this.currentNotes);
-                
-                if (selectedTypes.length === 0) {
-                    alert('Выберите хотя бы один тип заметок для экспорта');
-                    return;
-                }
-
-                const format = document.getElementById('exportFormat').value;
-                const includeMilliseconds = document.getElementById('includeMilliseconds').checked;
-                const filteredNotes = this.currentNotes.filter(note => {
-                    if (note.type === 'range') {
-                        return selectedTypes.includes('range') || selectedTypes.includes('Диапазон');
-                    }
-                    return selectedTypes.includes(note.type);
-                });
-                
-                console.log('Filtered notes:', filteredNotes);
-                
-                // Сортируем заметки в хронологическом порядке (от старых к новым)
-                const sortedNotes = filteredNotes.sort((a, b) => a.seconds - b.seconds);
-                
-                let content, filename, mimeType;
-                
-                switch(format) {
-                    case 'csv':
-                        content = this.exportToCSV(sortedNotes, includeMilliseconds);
-                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.csv`;
-                        mimeType = 'text/csv';
-                        break;
-                    case 'json':
-                        content = this.exportToJSON(sortedNotes, includeMilliseconds);
-                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.json`;
-                        mimeType = 'application/json';
-                        break;
-                    case 'markdown':
-                        content = this.exportToMarkdown(sortedNotes, includeMilliseconds);
-                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.md`;
-                        mimeType = 'text/markdown';
-                        break;
-                    case 'txt':
-                        content = this.exportToPlainText(sortedNotes, includeMilliseconds);
-                        filename = `${this.currentVideoFileName}_notes_${this.getTimestamp()}.txt`;
-                        mimeType = 'text/plain';
-                        break;
-                }
-
-                this.downloadFile(content, filename, mimeType);
-                this.hideExportModal();
-            }
-
-            exportToCSV(notes, includeMilliseconds = true) {
-                const headers = ['timecode', 'seconds', 'type', 'text', 'start_time', 'end_time', 'duration'];
-                const csvContent = [
-                    headers.join(','),
-                    ...notes.map(note => {
-                        if (note.type === 'range') {
-                            return [
-                                `"${note.startTimecode} - ${note.endTimecode}"`,
-                                note.startSeconds,
-                                `"Диапазон"`,
-                                `"${note.description.replace(/"/g, '""')}"`,
-                                `"${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)}"`,
-                                `"${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}"`,
-                                `"${note.durationTimecode}"`
-                            ].join(',');
-                        } else {
-                            return [
-                                `"${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}"`,
-                                note.seconds,
-                                `"${note.type}"`,
-                                `"${note.text.replace(/"/g, '""')}"`,
-                                '',
-                                '',
-                                ''
-                            ].join(',');
-                        }
-                    })
-                ].join('\n');
-                return csvContent;
-            }
-
-            exportToJSON(notes, includeMilliseconds = true) {
-                const exportNotes = notes.map(note => {
-                    if (note.type === 'range') {
-                        return {
-                            id: note.id,
-                            type: 'range',
-                            startTimecode: this.formatTimecodeForExport(note.startSeconds, includeMilliseconds),
-                            endTimecode: this.formatTimecodeForExport(note.endSeconds, includeMilliseconds),
-                            startSeconds: note.startSeconds,
-                            endSeconds: note.endSeconds,
-                            duration: note.duration,
-                            durationTimecode: note.durationTimecode,
-                            description: note.description
-                        };
-                    } else {
-                        return {
-                            id: note.id,
-                            timecode: this.formatTimecodeForExport(note.seconds, includeMilliseconds),
-                            seconds: note.seconds,
-                            type: note.type,
-                            text: note.text
-                        };
-                    }
-                });
-                return JSON.stringify(exportNotes, null, 2);
-            }
-
-            exportToMarkdown(notes, includeMilliseconds = true) {
-                const content = [
-                    `# Notes — ${this.currentVideoFileName}`,
-                    '',
-                    ...notes.map(note => {
-                        if (note.type === 'range') {
-                            return `- **${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}** *(Диапазон, ${note.durationTimecode})* — ${note.description}`;
-                        } else {
-                            return `- **${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}** *(${note.type})* — ${note.text}`;
-                        }
-                    })
-                ].join('\n');
-                return content;
-            }
-
-            exportToPlainText(notes, includeMilliseconds = true) {
-                return notes.map(note => {
-                    if (note.type === 'range') {
-                        return `[${this.formatTimecodeForExport(note.startSeconds, includeMilliseconds)} - ${this.formatTimecodeForExport(note.endSeconds, includeMilliseconds)}] (Диапазон, ${note.durationTimecode}) ${note.description}`;
-                    } else {
-                        return `[${this.formatTimecodeForExport(note.seconds, includeMilliseconds)}] (${note.type}) ${note.text}`;
-                    }
-                }).join('\n');
-            }
-
-            getTimestamp() {
-                const now = new Date();
-                return now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-            }
-
-            downloadFile(content, filename, mimeType) {
-                const blob = new Blob([content], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }
-
-            updateUI() {
-                const hasVideo = !!this.currentVideoFileName;
-                this.addNoteBtn.disabled = !hasVideo || !this.noteText.value.trim();
-                this.noteText.disabled = !hasVideo;
-                
-                // Контрол скорости работает только для локального видео
-                this.speedControl.disabled = !hasVideo || this.currentVideoType === 'youtube';
-                
-                // Обновляем состояние кнопки загрузки YouTube
-                if (this.currentVideoType === 'youtube') {
-                    const isValid = this.isValidYoutubeUrl(this.youtubeUrl.value.trim());
-                    this.loadYoutubeBtn.disabled = !isValid;
-                    
-                    // Обновляем кнопки диапазонов
-                    this.updateRangeButtons();
-                }
-            }
-        }
-
-        // Инициализация приложения
-        let app;
-        document.addEventListener('DOMContentLoaded', () => {
-            app = new VideoNotesApp();
-        });
-    </script>
+  </dialog>
+
+  <!-- Мои видео -->
+  <dialog class="modal modal-mid" id="libraryDialog" aria-labelledby="libraryTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="libraryTitle">Мои видео</h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="library-tools">
+        <button class="btn btn-sm" id="exportAllMdBtn">Все правки одним файлом (.md)</button>
+        <button class="btn btn-sm" id="backupBtn">Бэкап (.json)</button>
+        <label class="btn btn-sm btn-ghost">
+          Загрузить архив или бэкап
+          <input type="file" id="restoreInput" accept="application/json,.json,.zip" hidden>
+        </label>
+      </div>
+      <div class="library-list" id="libraryList"></div>
+    </div>
+  </dialog>
+
+  <!-- Импорт по ссылке -->
+  <dialog class="modal modal-narrow" id="importDialog" aria-labelledby="importTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="importTitle">Правки по ссылке</h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <p id="importText"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close>Не надо</button>
+        <button class="btn btn-primary" id="importConfirmBtn">Открыть</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Горячие клавиши -->
+  <dialog class="modal modal-narrow" id="hotkeysDialog" aria-labelledby="hotkeysTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="hotkeysTitle">Клавиши</h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <dl class="keys">
+        <dt><kbd>Пробел</kbd> <kbd>K</kbd> <kbd>⌘P</kbd></dt><dd>Пуск / пауза</dd>
+        <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Назад / вперёд на 5 секунд</dd>
+        <dt><kbd>⌘←</kbd> <kbd>⌘→</kbd></dt><dd>На 1 секунду (работает и при наборе)</dd>
+        <dt><kbd>J</kbd> <kbd>L</kbd></dt><dd>На 10 секунд</dd>
+        <dt><kbd>N</kbd></dt><dd>Перейти к полю правки</dd>
+        <dt><kbd>Enter</kbd></dt><dd>Добавить правку</dd>
+        <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>Новая строка в правке</dd>
+        <dt><kbd>I</kbd> / <kbd>O</kbd></dt><dd>Начало / конец отрезка</dd>
+        <dt><kbd>1</kbd>–<kbd>9</kbd>, при наборе <kbd>⌥1</kbd>–<kbd>⌥9</kbd></dt><dd>Выбрать тип правки</dd>
+        <dt><kbd>D</kbd></dt><dd>Обвести на кадре (Enter — готово, Esc — отмена, ⌘Z — шаг назад)</dd>
+        <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
+        <dt><kbd>E</kbd></dt><dd>Выгрузка</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Выйти из поля / закрыть окно</dd>
+      </dl>
+    </div>
+  </dialog>
+
+  <!-- Просмотр кадра -->
+  <dialog class="modal modal-wide" id="shotDialog" aria-label="Кадр с пометками">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title mono" id="shotTitle"></h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <img class="shot-big" id="shotImg" alt="">
+      <div class="modal-actions">
+        <button class="btn" id="shotSeekBtn">Перейти к моменту</button>
+        <button class="btn btn-primary" id="shotEditBtn">Изменить пометки</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="drag-overlay" id="dragOverlay" hidden>
+    <div class="drag-box">Отпусти — открою видео или правки</div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="app.js"></script>
 </body>
 </html>
