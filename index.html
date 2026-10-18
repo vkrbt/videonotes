@@ -50,9 +50,8 @@
     <!-- Стартовый экран: выбор видео -->
     <section class="start" id="startScreen">
       <div class="hero">
-        <span class="badge">Правки по таймкодам</span>
-        <h1>Смотришь видео — пишешь правки. Таймкод ставится сам.</h1>
-        <p class="lead">Перетащи файл или вставь ссылку. Всё хранится только в этом браузере.</p>
+        <h1>Правки к видео по таймкодам</h1>
+        <p class="lead">Смотришь видео и пишешь, что поправить, — таймкод ставится сам. Всё хранится только в этом браузере.</p>
       </div>
 
       <div class="attach-hint" id="attachHint" hidden></div>
@@ -67,19 +66,20 @@
         <label class="drop-file" for="fileInput">
           <input type="file" id="fileInput" accept="video/*,.mkv,.mov,.zip,.json">
           <span class="drop-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
           </span>
-          <strong>Выбери видеофайл</strong>
-          <span class="muted">или перетащи его сюда · <kbd>⌘V</kbd> вставит файл или ссылку из буфера</span>
-          <span class="muted small">Прислали архив или notes.json с правками? Перетащи сюда — правки подтянутся.</span>
+          <span class="drop-text">
+            <strong>Выбери видеофайл или перетащи его сюда</strong>
+            <span class="muted"><kbd>⌘V</kbd> вставит файл или ссылку из буфера. Прислали архив с правками — его тоже сюда.</span>
+          </span>
         </label>
         <button class="btn btn-ghost btn-sm back-btn" id="backToVideoBtn" hidden>← Вернуться к текущему видео</button>
       </div>
 
       <ol class="steps">
-        <li><b>01</b><span>Открой видео: файл с компьютера, YouTube (и Shorts) или прямая ссылка.</span></li>
-        <li><b>02</b><span>Начни печатать — видео встанет на паузу, момент запомнится. Enter — правка добавлена, видео поехало дальше.</span></li>
-        <li><b>03</b><span>Выгрузи всё разом: скопируй текстом, скачай файлом или отправь ссылку монтажёру.</span></li>
+        <li><b>01</b><span>Открой видео: файл, YouTube или прямую ссылку.</span></li>
+        <li><b>02</b><span>Пиши правку — видео встанет на паузу. <kbd>Enter</kbd> добавит. <kbd>D</kbd> — обвести на кадре, протяни по таймлайну — выделить кусок.</span></li>
+        <li><b>03</b><span>Нажми «Выгрузить»: отчёт монтажёру, промпт агенту или архив .zip.</span></li>
       </ol>
 
       <div class="recent" id="recent" hidden>

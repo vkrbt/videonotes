@@ -25,7 +25,7 @@ function plural(n, forms) {
 }
 const notesWord = (n) => `${n} ${plural(n, ['правка', 'правки', 'правок'])}`;
 
-function fmt(sec, { ms = false, hours = false } = {}) {
+function fmt(sec, { ms = false, hours = longVideo() } = {}) {
   sec = Math.max(0, sec || 0);
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -252,6 +252,11 @@ function fileNameFromUrl(url) {
 }
 
 /* ---------- состояние ---------- */
+
+/** Видео длиннее часа: показываем часы во всех таймкодах интерфейса */
+function longVideo() {
+  return (state.dur || state.project?.duration || 0) >= 3600;
+}
 
 const state = {
   settings: loadSettings(),
@@ -2556,9 +2561,11 @@ function bind() {
     el.tlTip.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
       : state.selecting?.moved ? `<b>${fmt(state.markIn)} → ${fmt(state.markOut)}</b>`
       : `<b>${fmt(t)}</b><span class="muted">протяни — выделить кусок</span>`;
-    const w = el.timeline.clientWidth;
-    el.tlTip.style.left = clamp(x, 60, w - 60) + 'px';
+    // Подсказка по центру курсора, но не вылезает за края карты
     el.tlTip.hidden = false;
+    const w = el.timeline.clientWidth;
+    const tw = el.tlTip.offsetWidth;
+    el.tlTip.style.left = clamp(x - tw / 2, 8, Math.max(8, w - tw - 8)) + 'px';
   });
   el.timeline.addEventListener('mouseleave', () => { el.tlTip.hidden = true; });
 
