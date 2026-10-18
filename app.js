@@ -347,8 +347,8 @@ const el = {
 
   typeChips: $('#typeChips'),
   stamp: $('#stamp'),
-  markInBtn: $('#markInBtn'),
-  markOutBtn: $('#markOutBtn'),
+  rangeBtn: $('#rangeBtn'),
+  stampHint: $('#stampHint'),
   rangeClearBtn: $('#rangeClearBtn'),
   noteInput: $('#noteInput'),
   addBtn: $('#addBtn'),
@@ -1312,6 +1312,9 @@ function resetComposer() {
   renderComposer();
 }
 
+const RANGE_ICON = svg('<path d="M8 5H5v14h3M16 5h3v14h-3"/><path d="M9.5 12h5"/>', 15);
+const END_ICON = svg('<path d="M4 12h11"/><path d="m11 8 4 4-4 4"/><path d="M19 5v14"/>', 15);
+
 function renderComposer(live = player.mode ? player.time() : 0) {
   const { markIn, markOut, pending } = state;
   let html;
@@ -1323,9 +1326,20 @@ function renderComposer(live = player.mode ? player.time() : 0) {
   }
   if (el.stamp.innerHTML !== html) el.stamp.innerHTML = html;
   el.stamp.classList.toggle('frozen', pending !== null || markIn !== null);
-  el.markInBtn.classList.toggle('on', markIn !== null);
-  el.markOutBtn.classList.toggle('on', markOut !== null);
-  el.rangeClearBtn.hidden = markIn === null;
+
+  // Одна кнопка ведёт по шагам: «Отрезок» → «Конец здесь» → отрезок готов
+  const step = markIn === null ? 'none' : markOut === null ? 'open' : 'closed';
+  const btn = step === 'open' ? `${END_ICON}Конец здесь` : `${RANGE_ICON}Отрезок`;
+  if (el.rangeBtn.innerHTML !== btn) el.rangeBtn.innerHTML = btn;
+  el.rangeBtn.classList.toggle('on', step === 'open');
+  el.rangeBtn.hidden = step === 'closed';
+  el.rangeClearBtn.hidden = step === 'none';
+  const hint = step === 'none'
+    ? `Правка к моменту ${fmt(pending ?? live)}`
+    : step === 'open'
+      ? `Начало ${fmt(markIn)}. Нажми «Конец здесь» — или сразу пиши правку`
+      : `Правка к отрезку ${fmt(markIn)}–${fmt(markOut)} (${Math.round(Math.abs(markOut - markIn))} с)`;
+  if (el.stampHint.textContent !== hint) el.stampHint.textContent = hint;
   el.addBtn.disabled = !state.project || (!el.noteInput.value.trim() && markIn === null && !state.attach);
 }
 
@@ -1354,7 +1368,7 @@ function markIn() {
 function markOut() {
   if (!state.project) return;
   if (state.markIn === null) {
-    toast('Сначала отметь начало отрезка — клавиша I');
+    toast('Сначала нажми «Отрезок» — отметить начало (клавиша I)');
     return;
   }
   state.markOut = player.time();
@@ -1947,7 +1961,7 @@ function openExport() {
   const p = state.project;
   if (!p) return;
   if (!p.notes.length) {
-    toast('Пока нечего выгружать — добавь хотя бы одну правку');
+    toast('Пока нечего сохранять — добавь хотя бы одну правку');
     return;
   }
   const o = state.settings.export;
@@ -2657,8 +2671,10 @@ function bind() {
     renderComposer();
     el.noteInput.focus();
   });
-  el.markInBtn.addEventListener('click', () => { markIn(); el.noteInput.focus(); });
-  el.markOutBtn.addEventListener('click', markOut);
+  el.rangeBtn.addEventListener('click', () => {
+    if (state.markIn === null) { markIn(); el.noteInput.focus(); }
+    else markOut();
+  });
   el.rangeClearBtn.addEventListener('click', () => {
     state.markIn = null;
     state.markOut = null;
@@ -2847,6 +2863,7 @@ function onHotkey(e) {
     if (e.code === 'ArrowLeft') { e.preventDefault(); player.seek(player.time() - 1); return; }
     if (e.code === 'ArrowRight') { e.preventDefault(); player.seek(player.time() + 1); return; }
     if (e.code === 'Enter' && e.target === el.noteInput) { e.preventDefault(); addNote(); return; }
+    if (e.code === 'KeyS') { e.preventDefault(); openExport(); return; }
     return;
   }
 
