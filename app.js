@@ -968,7 +968,7 @@ async function finishDraw() {
   }
   renderAttach();
   renderComposer();
-  el.noteInput.focus();
+  focusNote();
 }
 
 function layerPoint(e) {
@@ -1280,7 +1280,7 @@ function startAddType() {
     renderNotes();
   };
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); finish(true); el.noteInput.focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); focusNote(); }
     if (e.key === 'Escape') { e.preventDefault(); finish(false); }
   });
   input.addEventListener('blur', () => finish(true));
@@ -1377,7 +1377,7 @@ function markOut() {
     state.pausedByComposer = true;
   }
   renderComposer();
-  el.noteInput.focus();
+  focusNote();
 }
 
 function addNote() {
@@ -1492,7 +1492,7 @@ function renderNotes({ flash } = {}) {
     const node = el.notesList.querySelector(`[data-id="${flash}"]`);
     if (node) {
       node.classList.add('flash');
-      node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      scrollToNote(node);
     }
   }
 }
@@ -2453,6 +2453,7 @@ function bind() {
   el.libraryBtn.addEventListener('click', () => { renderLibrary(); el.libraryDialog.showModal(); });
   el.recentAllBtn.addEventListener('click', () => { renderLibrary(); el.libraryDialog.showModal(); });
   el.hotkeysBtn.addEventListener('click', () => el.hotkeysDialog.showModal());
+  $('#modeToggle').addEventListener('click', toggleReading);
   el.themeBtn.addEventListener('click', cycleTheme);
 
   // Списки видео (недавние и «Мои видео»)
@@ -2538,7 +2539,7 @@ function bind() {
       player.seek(state.markIn);
       if (sel.wasPlaying && state.settings.autopause) state.pausedByComposer = true;
       else if (sel.wasPlaying) player.play();
-      el.noteInput.focus();
+      focusNote();
     }
     renderSelection();
     renderComposer();
@@ -2559,7 +2560,7 @@ function bind() {
       seekToNote(n);
       if (state.filter !== 'all' && state.filter !== n.type) { state.filter = 'all'; renderNotes(); }
       const node = el.notesList.querySelector(`[data-id="${n.id}"]`);
-      node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      scrollToNote(node);
       node?.classList.remove('flash');
       void node?.offsetWidth;
       node?.classList.add('flash');
@@ -2655,7 +2656,7 @@ function bind() {
     if (rm) { e.stopPropagation(); return removeType(rm.dataset.remove); }
     if (e.target.closest('#typeAddBtn')) return startAddType();
     const chip = e.target.closest('[data-type]');
-    if (chip) { selectType(chip.dataset.type); el.noteInput.focus(); }
+    if (chip) { selectType(chip.dataset.type); focusNote(); }
   });
   el.noteInput.addEventListener('input', onComposerInput);
   el.noteInput.addEventListener('keydown', (e) => {
@@ -2669,10 +2670,10 @@ function bind() {
     if (state.markIn !== null && state.markOut === null) state.markOut = player.time();
     else if (state.pending !== null) state.pending = player.time();
     renderComposer();
-    el.noteInput.focus();
+    focusNote();
   });
   el.rangeBtn.addEventListener('click', () => {
-    if (state.markIn === null) { markIn(); el.noteInput.focus(); }
+    if (state.markIn === null) { markIn(); focusNote(); }
     else markOut();
   });
   el.rangeClearBtn.addEventListener('click', () => {
@@ -2809,6 +2810,24 @@ function renderSpeed() {
   $$('button', el.speedSeg).forEach((b) => b.classList.toggle('on', +b.dataset.speed === state.settings.speed));
 }
 
+/* ---------- режим чтения: видео узкое, правки широко ---------- */
+
+function applyReading() {
+  const on = !!state.settings.reading;
+  el.workspace.classList.toggle('reading', on);
+  const btn = $('#modeToggle');
+  const label = on ? 'Обычный режим (R)' : 'Режим чтения правок (R)';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  requestAnimationFrame(() => paintLayer()); // плеер поменял размер — перерисовать пометки
+}
+
+function toggleReading() {
+  state.settings.reading = !state.settings.reading;
+  saveSettings();
+  applyReading();
+}
+
 /* ---------- тема ---------- */
 
 const THEME_KEY = 'videonotes::theme';
@@ -2886,11 +2905,12 @@ function onHotkey(e) {
     ArrowRight: () => player.seek(player.time() + 5),
     KeyJ: () => player.seek(player.time() - 10),
     KeyL: () => player.seek(player.time() + 10),
-    KeyN: () => el.noteInput.focus(),
+    KeyN: () => focusNote(),
     KeyI: () => markIn(),
     KeyO: () => markOut(),
     KeyE: () => openExport(),
     KeyD: () => openDraw(),
+    KeyR: () => toggleReading(),
     '?': () => el.hotkeysDialog.showModal(),
   };
   if (actions[key]) {
@@ -2906,9 +2926,72 @@ function onHotkey(e) {
 
 /* ---------- старт ---------- */
 
+// Форма сдвигается ровно на столько, на сколько прокрутилась страница — вниз уезжает
+// под шапку, вверх возвращается (как адресная строка в мобильном Safari). Без рывков и сюрпризов
+const composerCard = $('#composer');
+let lastScrollY = window.scrollY;
+let composerShift = 0;
+const composerTab = $('#composerTab');
+function setComposerShift(v) {
+  composerShift = v;
+  composerCard.style.transform = v ? `translateY(${-v}px)` : '';
+  const h = composerCard.offsetHeight;
+  composerCard.classList.toggle('peek', v > h * 0.6);
+  // Наполовину спрятанная форма не ловит клики и Tab — кроме язычка
+  for (const child of composerCard.children) if (child !== composerTab) child.inert = v > h / 2;
+}
+let composerHoldUntil = 0; // пока страница сама докручивает к правке — форма стоит на месте
+window.addEventListener('scroll', () => {
+  const y = Math.max(0, window.scrollY);
+  const dy = y - lastScrollY;
+  lastScrollY = y;
+  if (getComputedStyle(composerCard).position !== 'sticky') return;
+  if (Date.now() < composerHoldUntil) return;
+  // Форма уходит ровно под шапку (20px — отступ до неё), а язычок остаётся торчать
+  const max = Math.min(composerCard.offsetHeight + 20, y);
+  setComposerShift(clamp(composerShift + dy, 0, max));
+}, { passive: true });
+function revealComposer() {
+  if (!composerShift) return;
+  composerCard.classList.add('reveal');
+  setComposerShift(0);
+  setTimeout(() => composerCard.classList.remove('reveal'), 260);
+}
+composerCard.addEventListener('focusin', (e) => { if (e.target !== composerTab) revealComposer(); });
+composerTab.addEventListener('click', () => focusNote());
+
+/** Докрутить до правки так, чтобы она оказалась под формой, а форма не уехала */
+function scrollToNote(node) {
+  if (!node) return;
+  const sticky = getComputedStyle(composerCard).position === 'sticky';
+  const topbar = $('.topbar').offsetHeight;
+  const top = sticky ? topbar + 20 + composerCard.offsetHeight + 16 : topbar + 16;
+  const bottom = window.innerHeight - 16;
+  const r = node.getBoundingClientRect();
+  let delta = 0;
+  if (r.top < top) delta = r.top - top;
+  else if (r.bottom > bottom) delta = Math.min(r.bottom - bottom, r.top - top);
+  if (sticky && composerShift) setComposerShift(0);
+  if (!delta) return;
+  composerHoldUntil = Date.now() + 800;
+  window.scrollBy({ top: delta, behavior: 'smooth' });
+}
+
+/** Поставить курсор в поле правки — сначала вернуть форму, если она уехала */
+function focusNote() {
+  revealComposer();
+  el.noteInput.focus();
+}
+
+// Высота прилипшего поля ввода — для отступа списка и прокрутки к правке
+new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty('--composer-h', `${Math.round(entry.borderBoxSize?.[0]?.blockSize ?? entry.target.offsetHeight)}px`);
+}).observe($('#composer'));
+
 bind();
 renderSpeed();
 renderThemeBtn();
+applyReading();
 renderRecent();
 renderComposer(0);
 handleShareHash();

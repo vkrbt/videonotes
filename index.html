@@ -163,6 +163,13 @@
         </p>
       </div>
 
+      <div class="divider">
+        <button class="mode-toggle" id="modeToggle" type="button" title="Режим чтения правок (R)" aria-label="Режим чтения правок">
+          <svg class="i-wide" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+          <svg class="i-narrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+
       <div class="side">
         <div class="composer card-3d" id="composer">
           <div class="types" id="typeChips"></div>
@@ -185,6 +192,11 @@
                       placeholder="Что поправить? Enter — добавить, Shift+Enter — новая строка"></textarea>
             <button class="btn btn-primary add-btn" id="addBtn" disabled>Добавить</button>
           </div>
+          <button class="composer-tab" id="composerTab" type="button" title="Вернуть форму (N)">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            Новая правка
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
         </div>
 
         <aside class="panel card-3d">
@@ -302,6 +314,7 @@
         <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>Новая строка в правке</dd>
         <dt><kbd>I</kbd> / <kbd>O</kbd></dt><dd>Начало / конец отрезка</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd>, при наборе <kbd>⌥1</kbd>–<kbd>⌥9</kbd></dt><dd>Выбрать тип правки</dd>
+        <dt><kbd>R</kbd></dt><dd>Режим чтения: правки широко, видео узко</dd>
         <dt><kbd>D</kbd></dt><dd>Обвести на кадре (Enter — готово, Esc — отмена, ⌘Z — шаг назад)</dd>
         <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
         <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки</dd>
