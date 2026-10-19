@@ -70,6 +70,15 @@ const ICON = {
 /* ---------- хранилище ---------- */
 
 const PREFIX = 'notes::';
+// Путь видео: генерация (+ текст описания) → правки → готово к публикации → опубликовано
+const STATUSES = {
+  generation: { label: 'Генерация', c: '#c084fc' },
+  edits: { label: 'Правки', c: '#8ea0ff' },
+  ready: { label: 'Готово к публикации', c: '#ffb547' },
+  published: { label: 'Опубликовано', c: 'var(--ok)' },
+};
+const DEFAULT_STATUS = 'edits';
+const CAPTION_LIMIT = 2200; // лимит подписи в Instagram
 const TYPES_KEY = 'notes::types';
 const SETTINGS_KEY = 'videonotes::settings';
 const DEFAULT_TYPES = ['Правка', 'Таймкод', 'Хук', 'Шорт', 'Другое'];
@@ -198,6 +207,10 @@ function readProject(key) {
     updatedAt: +d.updatedAt || 0,
     path: typeof d.path === 'string' ? d.path : '',
     meta: d.meta && typeof d.meta === 'object' ? d.meta : {},
+    status: STATUSES[d.status] ? d.status : DEFAULT_STATUS,
+    statusAt: +d.statusAt || 0,
+    desc: typeof d.desc === 'string' ? d.desc : '',
+    sources: typeof d.sources === 'string' ? d.sources : '',
     notes: sortNotes(rawNotes.map(normalizeNote).filter(Boolean)),
   };
 }
@@ -215,6 +228,10 @@ function serialize(p) {
     updatedAt: p.updatedAt || undefined,
     path: p.path || undefined,
     meta: Object.keys(p.meta || {}).length ? p.meta : undefined,
+    status: p.status !== DEFAULT_STATUS ? p.status : undefined,
+    statusAt: p.status !== DEFAULT_STATUS ? p.statusAt : undefined,
+    desc: p.desc || undefined,
+    sources: p.sources || undefined,
     notes: p.notes.map((n) => ({
       id: n.id,
       seconds: n.seconds,
@@ -237,7 +254,7 @@ function sortNotes(notes) {
 function saveProject({ touch = true } = {}) {
   const p = state.project;
   if (!p) return;
-  if (!p.notes.length && localStorage.getItem(p.key) === null) return;
+  if (!p.notes.length && p.status === DEFAULT_STATUS && !p.desc && !p.sources && localStorage.getItem(p.key) === null) return;
   if (touch) p.updatedAt = Date.now();
   store.set(p.key, serialize(p));
   renderLibraryCount();
@@ -305,6 +322,7 @@ const el = {
   sourceInfo: $('#sourceInfo'),
   sourceKind: $('#sourceKind'),
   sourceTitle: $('#sourceTitle'),
+  statusBtn: $('#statusBtn'),
   libraryBtn: $('#libraryBtn'),
   libraryCount: $('#libraryCount'),
   changeSourceBtn: $('#changeSourceBtn'),
@@ -370,6 +388,13 @@ const el = {
   addBtn: $('#addBtn'),
 
   notesCount: $('#notesCount'),
+  panelTabs: $('#panelTabs'),
+  descBadge: $('#descBadge'),
+  descPane: $('#descPane'),
+  descText: $('#descText'),
+  descSources: $('#descSources'),
+  descCount: $('#descCount'),
+  descCopyBtn: $('#descCopyBtn'),
   copyAllBtn: $('#copyAllBtn'),
   filters: $('#filters'),
   notesList: $('#notesList'),
@@ -661,6 +686,10 @@ function blankProject(src, key) {
     updatedAt: 0,
     path: '',
     meta: {},
+    status: DEFAULT_STATUS,
+    statusAt: 0,
+    desc: '',
+    sources: '',
     notes: [],
   };
 }
@@ -1140,6 +1169,36 @@ function openShot(n) {
    ЭКРАНЫ
 ============================================================ */
 
+/* ---------- вкладки: правки / описание к публикации ---------- */
+
+function setPanelTab(tab) {
+  state.panelTab = tab;
+  $$('[data-tab]', el.panelTabs).forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  const desc = tab === 'desc';
+  el.descPane.hidden = !desc;
+  el.notesList.hidden = desc;
+  el.filters.hidden = desc || el.filters.dataset.empty === '1';
+  el.copyAllBtn.hidden = desc;
+  if (desc) renderDesc();
+}
+
+function renderDesc() {
+  const p = state.project;
+  if (!p) return;
+  if (document.activeElement !== el.descText) el.descText.value = p.desc || '';
+  if (document.activeElement !== el.descSources) el.descSources.value = p.sources || '';
+  renderDescMeta();
+}
+
+function renderDescMeta() {
+  const p = state.project;
+  const len = (p?.desc || '').length;
+  el.descCount.textContent = `${len} / ${CAPTION_LIMIT}`;
+  el.descCount.classList.toggle('over', len > CAPTION_LIMIT);
+  el.descBadge.textContent = len ? '✓' : '';
+  el.descCopyBtn.disabled = !len;
+}
+
 function startProject(p) {
   state.project = p;
   state.dur = p.duration || 0;
@@ -1153,6 +1212,8 @@ function startProject(p) {
   renderTypes();
   renderNotes();
   renderTimeline();
+  setPanelTab('notes');
+  renderDescMeta();
   preloadShots(p);
   history.replaceState(null, '', location.pathname + location.search);
 }
@@ -1186,7 +1247,53 @@ function renderSource() {
   el.sourceKind.textContent = { youtube: 'YouTube', url: 'Ссылка', file: 'Файл' }[p.kind];
   el.sourceTitle.textContent = p.title;
   el.sourceTitle.title = p.title;
+  el.statusBtn.style.setProperty('--c', STATUSES[p.status].c);
+  el.statusBtn.innerHTML = `<span class="dot"></span>${esc(statusText(p))}${svg('<path d="m6 9 6 6 6-6"/>', 13)}`;
   document.title = `${p.title} — Video Notes`;
+}
+
+function statusText(p) {
+  const st = STATUSES[p.status] || STATUSES[DEFAULT_STATUS];
+  return p.status === 'published' && p.statusAt ? `${st.label} ${relDate(p.statusAt)}` : st.label;
+}
+
+function closeStatusMenu() {
+  $$('.status-menu').forEach((m) => m.remove());
+}
+
+function toggleStatusMenu() {
+  const p = state.project;
+  if (!p) return;
+  if ($('.status-menu')) return closeStatusMenu();
+  const menu = document.createElement('div');
+  menu.className = 'status-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = Object.entries(STATUSES).map(([id, st], i) => `
+    <button data-status="${id}" role="menuitemradio" aria-checked="${p.status === id}" class="${p.status === id ? 'on' : ''}" style="--c:${st.c}">
+      <span class="dot"></span><span class="step">${i + 1}</span>${st.label}
+      ${p.status === id ? `<span class="check">${ICON.check}</span>` : ''}
+    </button>`).join('');
+  menu.style.left = el.statusBtn.offsetLeft + 'px';
+  el.sourceInfo.append(menu);
+  menu.querySelector('.on, button').focus({ preventScroll: true });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-status]');
+    if (!b) return;
+    closeStatusMenu();
+    setStatus(b.dataset.status);
+  });
+}
+
+function setStatus(status) {
+  const p = state.project;
+  if (!p || p.status === status) return;
+  const open = p.notes.filter((n) => !n.done).length;
+  if ((status === 'ready' || status === 'published') && open && !confirm(`${notesWord(open)} ещё не ${plural(open, ['отмечена', 'отмечены', 'отмечены'])} сделанными. Всё равно «${STATUSES[status].label}»?`)) return;
+  p.status = status;
+  p.statusAt = Date.now();
+  saveProject();
+  renderSource();
+  toast(`Статус: ${STATUSES[status].label.toLowerCase()}`, { kind: 'ok' });
 }
 
 function renderLibraryCount() {
@@ -1205,7 +1312,7 @@ function vidRowHTML(p, { compact = false } = {}) {
       <button class="vid-open" data-act="open">
         ${kind}
         <span class="vid-main">
-          <span class="vid-title">${esc(p.title)}</span>
+          <span class="vid-title">${esc(p.title)}${p.status !== DEFAULT_STATUS ? `<span class="vid-status" style="--c:${STATUSES[p.status].c}">${esc(statusText(p))}</span>` : ''}</span>
           <span class="vid-sub">${esc(sub)}</span>
         </span>
       </button>
@@ -1473,7 +1580,8 @@ function renderFilters() {
   const counts = new Map();
   notes.forEach((n) => counts.set(n.type, (counts.get(n.type) || 0) + 1));
   if (state.filter !== 'all' && !counts.has(state.filter)) state.filter = 'all';
-  el.filters.hidden = counts.size < 2;
+  el.filters.dataset.empty = counts.size < 2 ? '1' : '';
+  el.filters.hidden = counts.size < 2 || state.panelTab === 'desc';
   el.filters.innerHTML =
     `<button class="type-chip all ${state.filter === 'all' ? 'on' : ''}" data-filter="all" style="--c:var(--accent-text)">Все <span class="num">${notes.length}</span></button>` +
     [...counts].map(([t, c]) => `
@@ -1510,7 +1618,8 @@ function renderNotes({ flash } = {}) {
   const p = state.project;
   const all = p?.notes || [];
   const done = all.filter((n) => n.done).length;
-  el.notesCount.textContent = all.length ? `${notesWord(all.length)}${done ? ` · ${done} готово` : ''}` : '';
+  el.notesCount.textContent = all.length ? (done ? `${done}/${all.length}` : String(all.length)) : '';
+  el.notesCount.title = all.length ? `${notesWord(all.length)}${done ? `, ${done} сделано` : ''}` : '';
   el.copyAllBtn.disabled = !all.length;
   renderFilters();
 
@@ -1563,9 +1672,11 @@ function toggleNoteMenu(node, n) {
 
 document.addEventListener('pointerdown', (e) => {
   if (!e.target.closest('.note-menu, [data-act="menu"]')) closeNoteMenu();
+  if (!e.target.closest('.status-menu, #statusBtn')) closeStatusMenu();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('.note-menu')) closeNoteMenu();
+  if (e.key === 'Escape' && $('.status-menu')) closeStatusMenu();
 }, true);
 
 const findNote = (id) => state.project?.notes.find((n) => n.id === id);
@@ -1801,8 +1912,14 @@ function videoInfo(p) {
     resolution: m.width && m.height ? `${m.width}×${m.height}` : undefined,
     sizeBytes: m.size || undefined,
     modified: m.modified ? new Date(m.modified).toISOString() : undefined,
+    status: p.status,
+    statusLabel: statusText(p),
+    description: p.desc || undefined,
+    sources: sourceList(p).length ? sourceList(p) : undefined,
   };
 }
+
+const sourceList = (p) => (p.sources || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
 function videoFacts(p) {
   const v = videoInfo(p);
@@ -1815,6 +1932,7 @@ function videoFacts(p) {
     ['Разрешение', v.resolution],
     ['Размер', size],
     ['Изменён', v.modified ? new Date(v.modified).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }) : null],
+    ['Статус', statusText(p)],
   ].filter(([, val]) => val);
 }
 
@@ -1869,6 +1987,12 @@ function buildAgentPrompt(p, opts) {
     '',
     'Самого видео в отчёте нет — возьми исходник по пути или ссылке выше. Если по пути файла нет, найди его по имени и сверь длительность.',
     '',
+    '## Описание к публикации',
+    ...(p.desc
+      ? [p.desc, '', 'Проверь факты и ссылки в описании; если правки меняют смысл ролика — поправь и текст.']
+      : ['Описания пока нет. Предложи текст подписи: факт или короткая история по теме видео, без воды. Можно опираться на статьи блога sreda.men и ссылаться на исследования — только реальные, с работающими ссылками.']),
+    ...(sourceList(p).length ? ['', 'Источники:', ...sourceList(p).map((x) => `- ${x}`)] : []),
+    '',
     '## Что сделать',
     'Внеси правки ниже по порядку. Таймкоды — от начала исходного файла (ЧЧ:ММ:СС.мс). «A – B» значит, что правка про весь кусок.',
     ...(hasMarks ? ['К части правок приложен кадр: на нём обведено место, о котором речь. Те же пометки описаны текстом — x слева направо, y сверху вниз, в процентах кадра. Кадры лежат в папке shots/ рядом с этим файлом, если прислан архив; там же report.html — тот же список для человека.'] : []),
@@ -1902,7 +2026,9 @@ h1{margin:10px 0 18px;font-size:30px;line-height:1.15}
 .item img{display:block;max-width:100%;margin-top:12px;border-radius:10px}
 .marks{margin:8px 0 0;padding-left:18px;color:#888898;font-size:13px}
 footer{margin-top:30px;color:#888898;font-size:12.5px}
-@media (prefers-color-scheme:light){body{background:#f5f5fa;color:#101018}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
+.desc{margin:0 0 22px;padding:16px 18px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#161622}
+.desc h2{margin:0 0 8px;font-size:15px;color:#c8c8d8}.desc p{margin:0;white-space:pre-wrap}.desc ul{margin:10px 0 0;padding-left:18px;font-size:13.5px}.desc a{color:#8ea0ff;word-break:break-all}
+@media (prefers-color-scheme:light){.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
 @media print{body{background:#fff;color:#111}.facts,.item{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
 `;
 
@@ -1936,6 +2062,7 @@ ${n.shapes && !src ? `<ul class="marks">${n.shapes.map((sh) => `<li>${esc(descri
 <div class="brand">Video Notes · правки</div>
 <h1>${esc(p.title)}</h1>
 <dl class="facts">${facts}<dt>Правок</dt><dd>${notes.length}</dd></dl>
+${p.desc || sourceList(p).length ? `<section class="desc"><h2>Описание к публикации</h2>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}${sourceList(p).length ? `<ul>${sourceList(p).map((x) => `<li>${/^https?:\/\//.test(x) ? `<a href="${esc(x)}" target="_blank">${esc(x)}</a>` : esc(x)}</li>`).join('')}</ul>` : ''}</section>` : ''}
 <p class="how">Таймкоды — от начала файла. Цветная полоска слева — тип правки${notes.some((n) => n.shot) ? ', на кадрах обведено место, о котором речь' : ''}.</p>
 ${items}
 <footer>Собрано ${esc(date)} в Video Notes</footer>
@@ -2413,10 +2540,13 @@ async function importPackage(file) {
 
   const key = keyFor(src);
   const added = mergeNotes(key, src, notes, shotData);
-  if (v.path || v.durationSeconds) {
+  if (v.path || v.durationSeconds || v.description || v.sources || v.status) {
     const p = readProject(key);
     if (v.path && !p.path) p.path = v.path;
     if (v.durationSeconds && !p.duration) p.duration = v.durationSeconds;
+    if (v.description && !p.desc) p.desc = v.description;
+    if (Array.isArray(v.sources) && !p.sources) p.sources = v.sources.join('\n');
+    if (STATUSES[v.status] && p.status === DEFAULT_STATUS) p.status = v.status;
     store.set(key, serialize(p));
   }
   renderLibraryCount();
@@ -2425,8 +2555,7 @@ async function importPackage(file) {
 
   if (state.project?.key === key && player.mode) {
     const fresh = readProject(key);
-    state.project.notes = fresh.notes;
-    state.project.path = fresh.path;
+    Object.assign(state.project, { notes: fresh.notes, path: fresh.path, desc: fresh.desc, sources: fresh.sources, status: fresh.status });
     renderTypes();
     renderNotes();
     renderTimeline();
@@ -2552,6 +2681,7 @@ function bind() {
   el.hotkeysBtn.addEventListener('click', () => el.hotkeysDialog.showModal());
   $('#modeToggle').addEventListener('click', toggleReading);
   el.themeBtn.addEventListener('click', cycleTheme);
+  el.statusBtn.addEventListener('click', toggleStatusMenu);
 
   // Списки видео (недавние и «Мои видео»)
   const onVidList = (e) => {
@@ -2873,6 +3003,26 @@ function bind() {
     if (e.target.matches('.note-text')) { clearTimeout(saveTimer); saveProject(); }
   });
   el.copyAllBtn.addEventListener('click', () => copyAll());
+
+  // Описание к публикации
+  el.panelTabs.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]');
+    if (b) setPanelTab(b.dataset.tab);
+  });
+  el.descText.addEventListener('input', () => {
+    state.project.desc = el.descText.value;
+    renderDescMeta();
+    saveSoon();
+  });
+  el.descSources.addEventListener('input', () => {
+    state.project.sources = el.descSources.value;
+    saveSoon();
+  });
+  [el.descText, el.descSources].forEach((f) => f.addEventListener('blur', () => { clearTimeout(saveTimer); saveProject(); }));
+  el.descCopyBtn.addEventListener('click', async () => {
+    const ok = await copyText(state.project.desc || '');
+    toast(ok ? 'Текст описания скопирован' : 'Не получилось скопировать', { kind: ok ? 'ok' : 'error' });
+  });
 
   // Выгрузка
   el.formatSeg.addEventListener('click', (e) => {

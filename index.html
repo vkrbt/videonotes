@@ -31,6 +31,7 @@
     <div class="source" id="sourceInfo" hidden>
       <span class="source-kind" id="sourceKind"></span>
       <span class="source-title" id="sourceTitle"></span>
+      <button class="status-pill" id="statusBtn" type="button" aria-haspopup="menu" title="Статус видео"></button>
     </div>
 
     <nav class="topbar-actions">
@@ -217,9 +218,9 @@
 
         <aside class="panel card-3d">
           <div class="panel-head">
-            <div>
-              <h2 class="panel-title">Правки</h2>
-              <span class="muted small" id="notesCount"></span>
+            <div class="segmented panel-tabs" id="panelTabs" role="tablist">
+              <button data-tab="notes" class="on" role="tab">Правки <span class="tab-count" id="notesCount"></span></button>
+              <button data-tab="desc" role="tab">Описание <span class="tab-count" id="descBadge"></span></button>
             </div>
             <div class="panel-actions">
               <button class="btn btn-sm" id="copyAllBtn" title="Скопировать все правки текстом">Копировать всё</button>
@@ -227,6 +228,17 @@
           </div>
           <div class="filters" id="filters"></div>
           <div class="notes" id="notesList"></div>
+          <div class="desc-pane" id="descPane" hidden>
+            <label class="label" for="descText">Текст к публикации</label>
+            <textarea class="field desc-text" id="descText" rows="8" placeholder="Подпись к видео: факт или история по теме, мысль, призыв. Можно оставить пустым — агент предложит текст по блогу и исследованиям"></textarea>
+            <div class="desc-meta">
+              <span class="muted small mono" id="descCount"></span>
+              <button class="btn btn-sm" id="descCopyBtn">Копировать текст</button>
+            </div>
+            <label class="label" for="descSources">Источники</label>
+            <textarea class="field desc-sources" id="descSources" rows="3" spellcheck="false" placeholder="Ссылки на статьи блога и исследования — по одной в строке"></textarea>
+            <p class="field-hint">Описание и источники попадают в отчёт и в промпт для агента.</p>
+          </div>
         </aside>
       </div>
     </section>
