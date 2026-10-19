@@ -553,6 +553,7 @@ const player = {
   stop() {
     if (draw.active) closeDraw();
     setThumbSource(null);
+    framesSource(null);
     el.video.pause();
     if (this.yt) {
       try { this.yt.destroy(); } catch { /* уже уничтожен */ }
@@ -706,6 +707,7 @@ function mountVideo(src, { remote = false } = {}) {
   el.video.playbackRate = state.settings.speed;
   el.video.src = src;
   setThumbSource(src);
+  framesSource(remote ? null : src);
   const p = state.project;
   el.video.addEventListener('loadedmetadata', () => {
     if (state.project !== p) return;
@@ -986,50 +988,68 @@ function closeDraw() {
   refreshOverlay();
 }
 
-function cancelDraw() {
-  const resume = draw.wasPlaying;
-  closeDraw();
-  if (resume) player.play();
-}
+/* Пометка прикрепляется сразу, как только фигура нарисована, — без кнопки «Готово».
+   Снимок кадра асинхронный: берём только последний результат, если рисуют быстро */
+let commitToken = 0;
+let commitPromise = null;
 
-async function finishDraw() {
-  if (!draw.active || draw.busy) return;
-  draw.busy = true;
+function commitDraw() {
+  const token = ++commitToken;
   const shapes = draw.shapes.slice();
   const target = draw.target;
-  const resume = draw.wasPlaying;
-  let img = null;
-  try {
-    img = shapes.length ? await snapshot(shapes) : null;
-  } finally {
-    draw.busy = false;
-    closeDraw();
-  }
+  const at = draw.at;
+  const wasPlaying = draw.wasPlaying;
+  commitPromise = (async () => {
+    const img = shapes.length ? await snapshot(shapes) : null;
+    if (token !== commitToken) return;
 
-  if (target) {
-    const n = findNote(target);
-    if (!n) return;
-    n.shapes = shapes.length ? shapes : null;
-    n.shot = !!img;
-    if (img) await shots.put(n.id, img);
-    else shots.del(n.id);
-    saveProject();
-    renderNotes({ flash: n.id });
-    refreshOverlay();
-    if (resume) player.play();
-    return;
-  }
+    if (target) {
+      const n = findNote(target);
+      if (!n) return;
+      n.shapes = shapes.length ? shapes : null;
+      n.shot = !!img;
+      if (img) await shots.put(n.id, img);
+      else shots.del(n.id);
+      saveProject();
+      renderNotes();
+      return;
+    }
 
-  state.attach = shapes.length ? { shapes, img } : null;
-  if (shapes.length) {
-    if (state.pending === null && state.markIn === null) state.pending = draw.at;
-    if (resume) state.pausedByComposer = true;
-  } else if (resume) {
-    player.play();
-  }
-  renderAttach();
-  renderComposer();
-  focusNote();
+    state.attach = shapes.length ? { shapes, img } : null;
+    if (shapes.length) {
+      if (state.pending === null && state.markIn === null) state.pending = at;
+      if (wasPlaying) state.pausedByComposer = true;
+    } else if (!el.noteInput.value.trim() && state.markIn === null) {
+      state.pending = null;
+    }
+    renderAttach();
+    renderComposer();
+  })();
+  return commitPromise;
+}
+
+/** Дождаться последнего снимка — чтобы правка ушла с актуальным кадром */
+async function settleDraw() {
+  let p;
+  do {
+    p = commitPromise;
+    await p;
+  } while (p !== commitPromise);
+}
+
+function undoShape() {
+  if (!draw.shapes.length) return;
+  draw.shapes.pop();
+  renderDrawBar();
+  paintLayer();
+  commitDraw();
+}
+
+function clearShapes() {
+  draw.shapes = [];
+  renderDrawBar();
+  paintLayer();
+  commitDraw();
 }
 
 function layerPoint(e) {
@@ -1082,6 +1102,7 @@ async function snapshot(shapes) {
     sw = W = R.w * kx;
     sh = H = R.h * ky;
     el.drawLayer.style.visibility = '';
+    el.drawBar.hidden = !draw.active;
   } else {
     toast(player.mode === 'yt'
       ? 'Кадр YouTube не снят — сохранила только пометки. Нажми «Разрешить снимок кадра» в панели рисования.'
@@ -1527,9 +1548,11 @@ function markOut() {
   focusNote();
 }
 
-function addNote() {
+async function addNote() {
   const p = state.project;
   if (!p) return;
+  if (commitPromise) await settleDraw();
+  if (draw.active && !draw.target) closeDraw();
   const text = el.noteInput.value.trim();
   if (!text && state.markIn === null && !state.attach) return;
 
@@ -1595,23 +1618,106 @@ function noteHTML(n) {
   const span = n.end !== null
     ? `${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>`
     : fmt(n.seconds);
+  // Слева кадр момента: с пометками, если обводили, иначе — снятый автоматически (у файлов)
+  const shot = n.shot ? shots.cache.get(n.id) : null;
+  const frame = !shot && framesEnabled() ? frames.cache.get(frameKey(n)) : null;
+  let thumb = '';
+  if (shot || frame) {
+    thumb = `<button class="note-thumb" data-act="${shot ? 'shot' : 'seek'}" title="${shot ? 'Открыть кадр' : 'Перейти к моменту'}">
+      <img src="${shot || frame}" alt="Кадр ${esc(fmt(n.seconds))}"></button>`;
+  } else if (n.shot || n.shapes || framesEnabled()) {
+    thumb = `<button class="note-thumb empty" data-act="${n.shot || n.shapes ? 'shot' : 'seek'}">
+      <span>${n.shapes && !n.shot ? 'Пометки — покажу на видео' : ''}</span></button>`;
+    if (!n.shot && framesEnabled()) requestFrame(n);
+  }
   return `
-    <article class="note ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
-      <div class="note-top">
-        <button class="tc" data-act="seek" title="Перейти к моменту">${span}</button>
-        <select class="type-select" data-act="type" aria-label="Тип правки">
-          ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-        </select>
-        <div class="note-tools">
-          <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Отметить как сделанную'}">${ICON.check}</button>
-          <button class="tool" data-act="menu" title="Ещё" aria-haspopup="menu">${ICON.more}</button>
+    <article class="note ${thumb ? 'has-thumb' : ''} ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
+      ${thumb}
+      <div class="note-body">
+        <div class="note-top">
+          <button class="tc" data-act="seek" title="Перейти к моменту">${span}</button>
+          <select class="type-select" data-act="type" aria-label="Тип правки">
+            ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+          </select>
+          <div class="note-tools">
+            <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Отметить как сделанную'}">${ICON.check}</button>
+            <button class="tool" data-act="menu" title="Ещё" aria-haspopup="menu">${ICON.more}</button>
+          </div>
         </div>
+        <textarea class="note-text" rows="1" placeholder="Без текста">${esc(n.text)}</textarea>
       </div>
-      <textarea class="note-text" rows="1" placeholder="Без текста">${esc(n.text)}</textarea>
-      ${n.shot || n.shapes ? `<button class="note-shot" data-act="shot" title="Открыть кадр">${
-        shots.cache.get(n.id) ? `<img src="${shots.cache.get(n.id)}" alt="Кадр ${esc(fmt(n.seconds))}">`
-          : `<span class="shape-only">${n.shot ? 'Загружаю кадр…' : 'Пометки без кадра — покажу на видео'}</span>`}</button>` : ''}
     </article>`;
+}
+
+/* ---------- кадры для карточек: скрытая копия видео снимает момент каждой правки ---------- */
+
+const frames = { cache: new Map(), queue: [], busy: false, video: null, src: null };
+const frameKey = (n) => `${n.id}@${n.seconds.toFixed(3)}`;
+// Только локальные файлы: их кадры можно читать. Чужие ссылки «заражают» canvas, YouTube недоступен
+const framesEnabled = () => player.mode === 'video' && state.project?.kind === 'file' && !!frames.src;
+
+function framesSource(src) {
+  frames.queue = [];
+  frames.src = src || null;
+  if (!frames.video) {
+    frames.video = document.createElement('video');
+    frames.video.muted = true;
+    frames.video.playsInline = true;
+    frames.video.preload = 'auto';
+  }
+  if (src) frames.video.src = src;
+  else {
+    frames.video.removeAttribute('src');
+    frames.video.load();
+  }
+}
+
+function requestFrame(n) {
+  const k = frameKey(n);
+  if (frames.cache.has(k) || frames.queue.some((x) => frameKey(x) === k)) return;
+  frames.queue.push(n);
+  setTimeout(pumpFrames, 0);
+}
+
+function waitEvent(target, type, ms = 4000) {
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); target.removeEventListener(type, done); resolve(); };
+    const timer = setTimeout(done, ms);
+    target.addEventListener(type, done, { once: true });
+  });
+}
+
+async function pumpFrames() {
+  if (frames.busy) return;
+  frames.busy = true;
+  const v = frames.video;
+  try {
+    while (frames.queue.length && frames.src) {
+      const n = frames.queue.shift();
+      const k = frameKey(n);
+      if (frames.cache.has(k)) continue;
+      if (v.readyState < 1) await waitEvent(v, 'loadedmetadata');
+      if (!v.videoWidth) break;
+      v.currentTime = Math.min(n.seconds, Math.max(0, (v.duration || n.seconds) - 0.05));
+      await waitEvent(v, 'seeked');
+      const w = 360;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = Math.round((w * v.videoHeight) / v.videoWidth);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      const url = c.toDataURL('image/jpeg', 0.72);
+      frames.cache.set(k, url);
+      const thumb = el.notesList.querySelector(`[data-id="${n.id}"] .note-thumb.empty`);
+      if (thumb && !n.shot) {
+        thumb.classList.remove('empty');
+        thumb.innerHTML = `<img src="${url}" alt="">`;
+      }
+    }
+  } catch {
+    frames.queue = [];
+  } finally {
+    frames.busy = false;
+  }
 }
 
 function renderNotes({ flash } = {}) {
@@ -2859,9 +2965,9 @@ function bind() {
     const b = e.target.closest('[data-color]');
     if (b) { draw.color = state.settings.drawColor = b.dataset.color; saveSettings(); renderDrawBar(); }
   });
-  el.drawUndo.addEventListener('click', () => { draw.shapes.pop(); renderDrawBar(); paintLayer(); });
-  el.drawCancel.addEventListener('click', cancelDraw);
-  el.drawDone.addEventListener('click', finishDraw);
+  el.drawUndo.addEventListener('click', undoShape);
+  el.drawCancel.addEventListener('click', clearShapes);
+  el.drawDone.addEventListener('click', closeDraw);
   el.drawCapture.addEventListener('click', () => (tabCap.video ? tabCap.stop() : tabCap.start()));
   el.drawLayer.addEventListener('pointerdown', (e) => {
     if (!draw.active || e.button !== 0) return;
@@ -2892,6 +2998,9 @@ function bind() {
     if (big) draw.shapes.push(normShapes([c])[0]);
     renderDrawBar();
     paintLayer();
+    if (!big) return;
+    commitDraw();
+    if (!draw.target) focusNote(); // можно сразу писать текст, рисовать мышью это не мешает
   };
   el.drawLayer.addEventListener('pointerup', endShape);
   el.drawLayer.addEventListener('pointercancel', endShape);
@@ -3148,10 +3257,13 @@ function digitOf(e) {
 function onHotkey(e) {
   if ($$('dialog[open]').length) return;
   if (draw.active) {
-    if (e.code === 'Escape') { e.preventDefault(); cancelDraw(); }
-    else if (e.code === 'Enter') { e.preventDefault(); finishDraw(); }
-    else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') { e.preventDefault(); draw.shapes.pop(); renderDrawBar(); paintLayer(); }
-    return;
+    const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
+    if (e.code === 'Escape') { e.preventDefault(); closeDraw(); return; }
+    if (!typing) {
+      if (e.code === 'Enter') { e.preventDefault(); closeDraw(); }
+      else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ') { e.preventDefault(); undoShape(); }
+      return;
+    }
   }
   const mod = e.metaKey || e.ctrlKey;
   const inField = e.target.closest?.('input, textarea, select, [contenteditable]');
