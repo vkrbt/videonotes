@@ -62,6 +62,8 @@ const ICON = {
   pencil: svg('<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/><path d="m14.5 5.5 3 3"/>', 15),
   retime: svg('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/>', 15),
   trash: svg('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>', 15),
+  more: svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>', 16),
+  frame: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><ellipse cx="12" cy="12" rx="4.5" ry="3"/>', 16),
 };
 
 /* ---------- хранилище ---------- */
@@ -1455,10 +1457,8 @@ function noteHTML(n) {
           ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
         <div class="note-tools">
-          <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Готово'}">${ICON.check}</button>
-          <button class="tool" data-act="draw" title="Обвести на кадре">${ICON.pencil}</button>
-          <button class="tool" data-act="retime" title="Перенести на текущий момент видео">${ICON.retime}</button>
-          <button class="tool danger" data-act="delete" title="Удалить">${ICON.trash}</button>
+          <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Отметить как сделанную'}">${ICON.check}</button>
+          <button class="tool" data-act="menu" title="Ещё" aria-haspopup="menu">${ICON.more}</button>
         </div>
       </div>
       <textarea class="note-text" rows="1" placeholder="Без текста">${esc(n.text)}</textarea>
@@ -1496,6 +1496,39 @@ function renderNotes({ flash } = {}) {
     }
   }
 }
+
+/* Меню «⋯» у правки: действия с подписями, а не загадочные иконки */
+function closeNoteMenu() {
+  $$('.note-menu').forEach((m) => {
+    m.closest('.note')?.classList.remove('menu-open');
+    m.remove();
+  });
+}
+
+function toggleNoteMenu(node, n) {
+  const open = node.querySelector('.note-menu');
+  closeNoteMenu();
+  if (open) return;
+  const menu = document.createElement('div');
+  menu.className = 'note-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    <button data-act="draw" role="menuitem">${ICON.frame}<span>${n.shapes ? 'Изменить пометки на кадре' : 'Обвести на кадре'}</span></button>
+    <button data-act="retime" role="menuitem">${ICON.retime}<span>Перенести на текущий момент</span></button>
+    <button data-act="delete" role="menuitem" class="danger">${ICON.trash}<span>Удалить</span></button>`;
+  node.append(menu);
+  node.classList.add('menu-open');
+  // Не хватает места снизу — открываем вверх
+  if (menu.getBoundingClientRect().bottom > window.innerHeight - 8) menu.classList.add('up');
+  menu.querySelector('button').focus({ preventScroll: true });
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.note-menu, [data-act="menu"]')) closeNoteMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('.note-menu')) closeNoteMenu();
+}, true);
 
 const findNote = (id) => state.project?.notes.find((n) => n.id === id);
 
@@ -2697,7 +2730,9 @@ function bind() {
     if (!btn || !node) return;
     const n = findNote(node.dataset.id);
     if (!n) return;
+    if (btn.closest('.note-menu')) closeNoteMenu();
     switch (btn.dataset.act) {
+      case 'menu': toggleNoteMenu(node, n); break;
       case 'seek': seekToNote(n); break;
       case 'done':
         n.done = !n.done;

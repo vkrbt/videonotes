@@ -1073,7 +1073,41 @@ main {
 .type-select option { background: var(--bg-3); color: var(--text); }
 
 .note-tools { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.12s; }
-.note:hover .note-tools, .note:focus-within .note-tools, .note.done .note-tools { opacity: 1; }
+.note:hover .note-tools, .note:focus-within .note-tools, .note.done .note-tools, .note.menu-open .note-tools { opacity: 1; }
+.note.menu-open { z-index: 10; }
+
+.note-menu {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  z-index: 10;
+  min-width: 230px;
+  padding: 4px;
+  border: 2px solid var(--ink);
+  border-bottom-width: 3px;
+  border-radius: var(--r);
+  background: var(--bg-2);
+  box-shadow: var(--shadow);
+  animation: pop 0.14s cubic-bezier(0.2, 0, 0, 1);
+}
+.note-menu.up { top: auto; bottom: calc(100% - 36px); }
+.note-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+}
+.note-menu button svg { flex: 0 0 auto; color: var(--dim); }
+.note-menu button:hover, .note-menu button:focus-visible { background: var(--hover); outline: none; }
+.note-menu button.danger, .note-menu button.danger svg { color: var(--warn); }
 .tool {
   display: grid;
   place-items: center;
