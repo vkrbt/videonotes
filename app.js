@@ -553,7 +553,6 @@ const player = {
   stop() {
     if (draw.active) closeDraw();
     setThumbSource(null);
-    framesSource(null);
     el.video.pause();
     if (this.yt) {
       try { this.yt.destroy(); } catch { /* уже уничтожен */ }
@@ -705,9 +704,12 @@ function mountVideo(src, { remote = false } = {}) {
   player.mode = 'video';
   el.playerFrame.classList.remove('is-yt', 'vertical');
   el.video.playbackRate = state.settings.speed;
+  // Ссылку сначала пробуем с CORS — тогда с кадра можно снять снимок с пометками.
+  // Сервер без CORS такой запрос отклонит, тогда грузим как обычно
+  if (remote) el.video.crossOrigin = 'anonymous';
+  else el.video.removeAttribute('crossorigin');
   el.video.src = src;
   setThumbSource(src);
-  framesSource(remote ? null : src);
   const p = state.project;
   el.video.addEventListener('loadedmetadata', () => {
     if (state.project !== p) return;
@@ -722,6 +724,11 @@ function mountVideo(src, { remote = false } = {}) {
   }, { once: true });
   el.video.onerror = () => {
     if (state.project !== p) return;
+    if (remote && el.video.crossOrigin) {
+      el.video.removeAttribute('crossorigin');
+      el.video.src = src;
+      return;
+    }
     toast(remote
       ? 'Видео по ссылке не открылось. Нужна прямая ссылка на файл; Instagram, Drive и VK так не отдают — скачай файл и перетащи сюда.'
       : 'Браузер не умеет играть этот файл. Попробуй MP4 (H.264) или WebM.', { kind: 'error', timeout: 8000 });
@@ -1618,106 +1625,23 @@ function noteHTML(n) {
   const span = n.end !== null
     ? `${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>`
     : fmt(n.seconds);
-  // Слева кадр момента: с пометками, если обводили, иначе — снятый автоматически (у файлов)
-  const shot = n.shot ? shots.cache.get(n.id) : null;
-  const frame = !shot && framesEnabled() ? frames.cache.get(frameKey(n)) : null;
-  let thumb = '';
-  if (shot || frame) {
-    thumb = `<button class="note-thumb" data-act="${shot ? 'shot' : 'seek'}" title="${shot ? 'Открыть кадр' : 'Перейти к моменту'}">
-      <img src="${shot || frame}" alt="Кадр ${esc(fmt(n.seconds))}"></button>`;
-  } else if (n.shot || n.shapes || framesEnabled()) {
-    thumb = `<button class="note-thumb empty" data-act="${n.shot || n.shapes ? 'shot' : 'seek'}">
-      <span>${n.shapes && !n.shot ? 'Пометки — покажу на видео' : ''}</span></button>`;
-    if (!n.shot && framesEnabled()) requestFrame(n);
-  }
   return `
-    <article class="note ${thumb ? 'has-thumb' : ''} ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
-      ${thumb}
-      <div class="note-body">
-        <div class="note-top">
-          <button class="tc" data-act="seek" title="Перейти к моменту">${span}</button>
-          <select class="type-select" data-act="type" aria-label="Тип правки">
-            ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-          </select>
-          <div class="note-tools">
-            <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Отметить как сделанную'}">${ICON.check}</button>
-            <button class="tool" data-act="menu" title="Ещё" aria-haspopup="menu">${ICON.more}</button>
-          </div>
+    <article class="note ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
+      <div class="note-top">
+        <button class="tc" data-act="seek" title="Перейти к моменту">${span}</button>
+        <select class="type-select" data-act="type" aria-label="Тип правки">
+          ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>
+        <div class="note-tools">
+          <button class="tool ok ${n.done ? 'on' : ''}" data-act="done" title="${n.done ? 'Вернуть в работу' : 'Отметить как сделанную'}">${ICON.check}</button>
+          <button class="tool" data-act="menu" title="Ещё" aria-haspopup="menu">${ICON.more}</button>
         </div>
-        <textarea class="note-text" rows="1" placeholder="Без текста">${esc(n.text)}</textarea>
       </div>
+      <textarea class="note-text" rows="1" placeholder="Без текста">${esc(n.text)}</textarea>
+      ${n.shot || n.shapes ? `<button class="note-shot" data-act="shot" title="Открыть кадр">${
+        shots.cache.get(n.id) ? `<img src="${shots.cache.get(n.id)}" alt="Кадр ${esc(fmt(n.seconds))}">`
+          : `<span class="shape-only">${n.shot ? 'Загружаю кадр…' : 'Пометки без кадра — покажу на видео'}</span>`}</button>` : ''}
     </article>`;
-}
-
-/* ---------- кадры для карточек: скрытая копия видео снимает момент каждой правки ---------- */
-
-const frames = { cache: new Map(), queue: [], busy: false, video: null, src: null };
-const frameKey = (n) => `${n.id}@${n.seconds.toFixed(3)}`;
-// Только локальные файлы: их кадры можно читать. Чужие ссылки «заражают» canvas, YouTube недоступен
-const framesEnabled = () => player.mode === 'video' && state.project?.kind === 'file' && !!frames.src;
-
-function framesSource(src) {
-  frames.queue = [];
-  frames.src = src || null;
-  if (!frames.video) {
-    frames.video = document.createElement('video');
-    frames.video.muted = true;
-    frames.video.playsInline = true;
-    frames.video.preload = 'auto';
-  }
-  if (src) frames.video.src = src;
-  else {
-    frames.video.removeAttribute('src');
-    frames.video.load();
-  }
-}
-
-function requestFrame(n) {
-  const k = frameKey(n);
-  if (frames.cache.has(k) || frames.queue.some((x) => frameKey(x) === k)) return;
-  frames.queue.push(n);
-  setTimeout(pumpFrames, 0);
-}
-
-function waitEvent(target, type, ms = 4000) {
-  return new Promise((resolve) => {
-    const done = () => { clearTimeout(timer); target.removeEventListener(type, done); resolve(); };
-    const timer = setTimeout(done, ms);
-    target.addEventListener(type, done, { once: true });
-  });
-}
-
-async function pumpFrames() {
-  if (frames.busy) return;
-  frames.busy = true;
-  const v = frames.video;
-  try {
-    while (frames.queue.length && frames.src) {
-      const n = frames.queue.shift();
-      const k = frameKey(n);
-      if (frames.cache.has(k)) continue;
-      if (v.readyState < 1) await waitEvent(v, 'loadedmetadata');
-      if (!v.videoWidth) break;
-      v.currentTime = Math.min(n.seconds, Math.max(0, (v.duration || n.seconds) - 0.05));
-      await waitEvent(v, 'seeked');
-      const w = 360;
-      const c = document.createElement('canvas');
-      c.width = w;
-      c.height = Math.round((w * v.videoHeight) / v.videoWidth);
-      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-      const url = c.toDataURL('image/jpeg', 0.72);
-      frames.cache.set(k, url);
-      const thumb = el.notesList.querySelector(`[data-id="${n.id}"] .note-thumb.empty`);
-      if (thumb && !n.shot) {
-        thumb.classList.remove('empty');
-        thumb.innerHTML = `<img src="${url}" alt="">`;
-      }
-    }
-  } catch {
-    frames.queue = [];
-  } finally {
-    frames.busy = false;
-  }
 }
 
 function renderNotes({ flash } = {}) {
@@ -3223,6 +3147,23 @@ function toggleFullscreen() {
   else el.playerFrame.requestFullscreen?.().catch(() => {});
 }
 
+/** videonotes.vkrbt.me/?src=<ссылка на видео>&title=<название> — сразу открыть это видео */
+function openFromQuery() {
+  if (location.hash.startsWith('#s=')) return;
+  const q = new URLSearchParams(location.search);
+  const raw = q.get('src');
+  if (!raw) return;
+  const src = parseSource(raw);
+  if (src && src.kind === 'url' && q.get('title')) src.title = q.get('title');
+  if (!openSource(src)) return;
+  const title = q.get('title');
+  if (title && state.project && state.project.title !== title && state.project.title === fileNameFromUrl(state.project.url || '')) {
+    state.project.title = title;
+    renderSource();
+    saveProject({ touch: false });
+  }
+}
+
 /* ---------- тема ---------- */
 
 const THEME_KEY = 'videonotes::theme';
@@ -3394,4 +3335,5 @@ applyReading();
 renderRecent();
 renderComposer(0);
 handleShareHash();
+openFromQuery();
 cleanupShots();
