@@ -1360,6 +1360,14 @@ function onComposerInput() {
   renderComposer();
 }
 
+function clearRange() {
+  state.markIn = null;
+  state.markOut = null;
+  if (!el.noteInput.value.trim() && !state.attach) state.pending = null;
+  renderSelection();
+  renderComposer();
+}
+
 function markIn() {
   if (!state.project) return;
   state.markIn = player.time();
@@ -2599,22 +2607,27 @@ function bind() {
       node?.classList.add('flash');
       return;
     }
+    // Отрезок выделен — клик мимо него сбрасывает выделение (подсказка об этом предупреждает)
+    if (state.markIn !== null) clearRange();
     player.seek(timelineTime(e).t);
+    showTimelineTip(e);
   });
-  el.timeline.addEventListener('mousemove', (e) => {
+  const showTimelineTip = (e) => {
     if (!state.dur) return;
     const mark = e.target.closest('.tl-mark');
     const n = mark && findNote(mark.dataset.id);
     const { t, x } = timelineTime(e);
     el.tlTip.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
       : state.selecting?.moved ? `<b>${fmt(state.markIn)} → ${fmt(state.markOut)}</b>`
+      : state.markIn !== null ? `<b>${fmt(t)}</b><span class="muted">клик — сбросить отрезок</span>`
       : `<b>${fmt(t)}</b><span class="muted">протяни — выделить кусок</span>`;
     // Подсказка по центру курсора, но не вылезает за края карты
     el.tlTip.hidden = false;
     const w = el.timeline.clientWidth;
     const tw = el.tlTip.offsetWidth;
     el.tlTip.style.left = clamp(x - tw / 2, 8, Math.max(8, w - tw - 8)) + 'px';
-  });
+  };
+  el.timeline.addEventListener('mousemove', showTimelineTip);
   el.timeline.addEventListener('mouseleave', () => { el.tlTip.hidden = true; });
 
   // Обводка на кадре
@@ -2709,13 +2722,7 @@ function bind() {
     if (state.markIn === null) { markIn(); focusNote(); }
     else markOut();
   });
-  el.rangeClearBtn.addEventListener('click', () => {
-    state.markIn = null;
-    state.markOut = null;
-    renderSelection();
-    if (!el.noteInput.value.trim()) state.pending = null;
-    renderComposer();
-  });
+  el.rangeClearBtn.addEventListener('click', clearRange);
 
   // Список правок
   el.filters.addEventListener('click', (e) => {
