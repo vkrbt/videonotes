@@ -587,10 +587,30 @@ function loadYouTubeApi() {
 
 const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|ogv|ogg|avi|m3u8)$/i;
 
+/** Ссылка на страницу Drive → поток файла. Исходную ссылку сохраняем для заметок и экспорта. */
+function googleDriveVideo(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.replace(/^www\./, '');
+  if (!['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com'].includes(host)) return null;
+  const pathId = u.pathname.match(/^\/file\/(?:u\/\d+\/)?d\/([\w-]+)(?:\/|$)/);
+  const queryId = ['/', '/open', '/uc', '/download'].includes(u.pathname) ? u.searchParams.get('id') : null;
+  const id = pathId?.[1] || queryId;
+  if (!id || !/^[\w-]{10,200}$/.test(id)) return null;
+  const media = new URL('https://drive.usercontent.google.com/download');
+  media.searchParams.set('id', id);
+  media.searchParams.set('export', 'download');
+  media.searchParams.set('confirm', 't');
+  const resourceKey = u.searchParams.get('resourcekey');
+  if (resourceKey) media.searchParams.set('resourcekey', resourceKey);
+  return { id, mediaUrl: media.href };
+}
+
 function parseSource(raw) {
   let text = String(raw || '').trim();
   if (!text) return null;
-  if (!/^https?:\/\//i.test(text) && /^(www\.|m\.|youtu|[\w-]+\.[a-z]{2,}\/)/i.test(text)) text = 'https://' + text;
+  if (!/^https?:\/\//i.test(text) && /^(www\.|m\.|youtu|(?:[\w-]+\.)+[a-z]{2,}\/)/i.test(text)) text = 'https://' + text;
   let u;
   try { u = new URL(text); } catch { return null; }
   if (!/^https?:$/.test(u.protocol)) return null;
@@ -614,6 +634,9 @@ function parseSource(raw) {
       start: parseTimeParam(u.searchParams.get('t') || u.searchParams.get('start')),
     };
   }
+  const drive = googleDriveVideo(u.href);
+  if (drive) return { kind: 'url', url: u.href, title: `Google Drive · ${drive.id}`, guessed: false };
+  if (host === 'drive.google.com') return { kind: 'error', message: 'Вставь ссылку на видеофайл Google Drive: «Поделиться» → «Копировать ссылку». Ссылка на папку не подойдёт.' };
   return { kind: 'url', url: u.href, title: fileNameFromUrl(u.href), guessed: !VIDEO_EXT.test(u.pathname) };
 }
 
@@ -666,8 +689,12 @@ function openSource(src) {
     startProject(project);
     mountYouTube(src.id, src.start || resumePoint(project));
   } else {
+    const drive = googleDriveVideo(src.url);
+    if (drive && (!project.title || project.title === fileNameFromUrl(src.url))) {
+      project.title = `Google Drive · ${drive.id}`;
+    }
     startProject(project);
-    mountVideo(src.url, { remote: true });
+    mountVideo(drive ? drive.mediaUrl : src.url, { remote: true, drive: !!drive });
   }
   return true;
 }
@@ -700,7 +727,7 @@ function resumePoint(p) {
   return 0;
 }
 
-function mountVideo(src, { remote = false } = {}) {
+function mountVideo(src, { remote = false, drive = false } = {}) {
   player.mode = 'video';
   el.playerFrame.classList.remove('is-yt', 'vertical');
   el.video.playbackRate = state.settings.speed;
@@ -729,8 +756,10 @@ function mountVideo(src, { remote = false } = {}) {
       el.video.src = src;
       return;
     }
-    toast(remote
-      ? 'Видео по ссылке не открылось. Нужна прямая ссылка на файл; Instagram, Drive и VK так не отдают — скачай файл и перетащи сюда.'
+    toast(drive
+      ? 'Google Drive не отдал видео. Проверь доступ «Все, у кого есть ссылка» и разрешение на скачивание. Если доступ открыт, попробуй позже или скачай файл и перетащи сюда.'
+      : remote
+      ? 'Видео по ссылке не открылось. Нужна прямая ссылка на файл; Instagram и VK так не отдают — скачай файл и перетащи сюда.'
       : 'Браузер не умеет играть этот файл. Попробуй MP4 (H.264) или WebM.', { kind: 'error', timeout: 8000 });
   };
 }
@@ -1272,7 +1301,7 @@ function renderSource() {
   const p = state.project;
   el.sourceInfo.hidden = !p;
   if (!p) return;
-  el.sourceKind.textContent = { youtube: 'YouTube', url: 'Ссылка', file: 'Файл' }[p.kind];
+  el.sourceKind.textContent = (googleDriveVideo(p.url) ? 'Google Drive' : { youtube: 'YouTube', url: 'Ссылка', file: 'Файл' }[p.kind]);
   el.sourceTitle.textContent = p.title;
   el.sourceTitle.title = p.title;
   el.statusBtn.style.setProperty('--c', STATUSES[p.status].c);
