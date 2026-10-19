@@ -702,6 +702,10 @@ main {
 .tl-tip {
   position: absolute;
   bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
   max-width: min(320px, calc(100% - 16px));
   padding: 6px 9px;
   border: 1px solid var(--line);
@@ -710,10 +714,22 @@ main {
   box-shadow: var(--shadow);
   font-size: 12.5px;
   pointer-events: none;
-  white-space: nowrap;
+  z-index: 3;
+}
+/* Микропревью кадра над курсором — отдельный скрытый экземпляр видео, основное не трогаем */
+.tl-thumb {
+  display: block;
+  height: 96px;
+  width: auto;
+  max-width: 200px;
+  border-radius: 6px;
+  background: #000;
+}
+.tl-tip-text {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  z-index: 3;
+  white-space: nowrap;
 }
 .tl-tip b { font-family: var(--mono); font-weight: 600; color: var(--accent-text); margin-right: 6px; }
 .tl-tip .muted { color: var(--dim); }

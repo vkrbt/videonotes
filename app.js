@@ -315,6 +315,8 @@ const el = {
   tlMarkers: $('#tlMarkers'),
   tlHead: $('#tlHead'),
   tlTip: $('#tlTip'),
+  tlTipText: $('#tlTipText'),
+  tlThumb: $('#tlThumb'),
   tlSel: $('#tlSel'),
   drawBtn: $('#drawBtn'),
   drawLayer: $('#drawLayer'),
@@ -500,6 +502,7 @@ const player = {
   },
   stop() {
     if (draw.active) closeDraw();
+    setThumbSource(null);
     el.video.pause();
     if (this.yt) {
       try { this.yt.destroy(); } catch { /* уже уничтожен */ }
@@ -648,6 +651,7 @@ function mountVideo(src, { remote = false } = {}) {
   el.playerFrame.classList.remove('is-yt', 'vertical');
   el.video.playbackRate = state.settings.speed;
   el.video.src = src;
+  setThumbSource(src);
   const p = state.project;
   el.video.addEventListener('loadedmetadata', () => {
     if (state.project !== p) return;
@@ -1648,6 +1652,30 @@ function renderSelection(t = player.time()) {
   el.tlSel.style.width = Math.max(0.4, ((b - a) / state.dur) * 100) + '%';
 }
 
+/* Микропревью: перематываем скрытую копию видео, не дожидаясь каждой перемотки —
+   берём только последнюю позицию курсора, чтобы превью успевало за мышью */
+let thumbWant = null;
+function thumbSeek(t) {
+  if (el.tlThumb.seeking) { thumbWant = t; return; }
+  if (Math.abs(el.tlThumb.currentTime - t) > 0.05) el.tlThumb.currentTime = t;
+}
+el.tlThumb.addEventListener('seeked', () => {
+  if (thumbWant === null) return;
+  const t = thumbWant;
+  thumbWant = null;
+  el.tlThumb.currentTime = t;
+});
+
+function setThumbSource(src) {
+  thumbWant = null;
+  if (src) {
+    el.tlThumb.src = src;
+  } else {
+    el.tlThumb.removeAttribute('src');
+    el.tlThumb.load();
+  }
+}
+
 function timelineTime(e) {
   const r = el.tlMarkers.getBoundingClientRect();
   return { t: clamp((e.clientX - r.left) / r.width, 0, 1) * state.dur, x: e.clientX - el.timeline.getBoundingClientRect().left };
@@ -2612,7 +2640,11 @@ function bind() {
     const mark = e.target.closest('.tl-mark');
     const n = mark && findNote(mark.dataset.id);
     const { t, x } = timelineTime(e);
-    el.tlTip.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
+    // Превью кадра: под меткой — момент правки, иначе — место под курсором
+    const thumbOk = player.mode === 'video' && el.tlThumb.videoWidth > 0;
+    el.tlThumb.hidden = !thumbOk;
+    if (thumbOk) thumbSeek(n ? n.seconds : t);
+    el.tlTipText.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
       : state.selecting?.moved ? `<b>${fmt(state.markIn)} → ${fmt(state.markOut)}</b>`
       : state.markIn !== null ? `<b>${fmt(t)}</b><span class="muted">клик — сбросить отрезок</span>`
       : `<b>${fmt(t)}</b><span class="muted">протяни — выделить кусок</span>`;
