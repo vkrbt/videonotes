@@ -62,6 +62,14 @@ test('reopening a saved URL project uses Drive media and preserves notes, key an
   assert.equal(c.state.project.notes.length, 1);
   assert.equal(c.mounted.opts.drive, true);
   assert.equal(c.mounted.opts.remote, true);
-  assert.equal(new URL(c.mounted.url).hostname, 'drive.usercontent.google.com');
+  assert.equal(new URL(c.mounted.url).hostname, 'videonotes.vkrbt.me');
+  assert.equal(new URL(c.mounted.url).pathname, '/api/drive');
   assert.equal(saved.url, original);
+});
+
+test('website playback uses the same-origin endpoint and keeps the resource key', () => {
+  const c = context();
+  c.location = { protocol: 'https:', hostname: 'videonotes.vkrbt.me' };
+  const source = c.googleDriveVideo(original + '?resourcekey=0-test');
+  assert.equal(source.playbackUrl, '/api/drive?id=' + id + '&resourcekey=0-test');
 });

@@ -604,7 +604,12 @@ function googleDriveVideo(raw) {
   media.searchParams.set('confirm', 't');
   const resourceKey = u.searchParams.get('resourcekey');
   if (resourceKey) media.searchParams.set('resourcekey', resourceKey);
-  return { id, mediaUrl: media.href };
+  const proxy = new URL('/api/drive', 'https://videonotes.vkrbt.me');
+  proxy.searchParams.set('id', id);
+  if (resourceKey) proxy.searchParams.set('resourcekey', resourceKey);
+  // На основном сайте функция работает с тем же origin; локальная версия использует её по HTTPS.
+  const onSite = typeof location !== 'undefined' && /^https?:$/.test(location.protocol) && location.hostname === 'videonotes.vkrbt.me';
+  return { id, mediaUrl: media.href, playbackUrl: onSite ? proxy.pathname + proxy.search : proxy.href };
 }
 
 function parseSource(raw) {
@@ -694,7 +699,7 @@ function openSource(src) {
       project.title = `Google Drive · ${drive.id}`;
     }
     startProject(project);
-    mountVideo(drive ? drive.mediaUrl : src.url, { remote: true, drive: !!drive });
+    mountVideo(drive ? drive.playbackUrl : src.url, { remote: true, drive: !!drive });
   }
   return true;
 }
@@ -751,13 +756,13 @@ function mountVideo(src, { remote = false, drive = false } = {}) {
   }, { once: true });
   el.video.onerror = () => {
     if (state.project !== p) return;
-    if (remote && el.video.crossOrigin) {
+    if (remote && !drive && el.video.crossOrigin) {
       el.video.removeAttribute('crossorigin');
       el.video.src = src;
       return;
     }
     toast(drive
-      ? 'Google Drive не отдал видео. Проверь доступ «Все, у кого есть ссылка» и разрешение на скачивание. Если доступ открыт, попробуй позже или скачай файл и перетащи сюда.'
+      ? 'Не удалось загрузить видео с Google Drive. Если доступ по ссылке открыт, попробуй ещё раз: Google может временно ограничивать загрузку. Можно также скачать файл и перетащить сюда.'
       : remote
       ? 'Видео по ссылке не открылось. Нужна прямая ссылка на файл; Instagram и VK так не отдают — скачай файл и перетащи сюда.'
       : 'Браузер не умеет играть этот файл. Попробуй MP4 (H.264) или WebM.', { kind: 'error', timeout: 8000 });
