@@ -25,14 +25,15 @@ function plural(n, forms) {
 }
 const notesWord = (n) => `${n} ${plural(n, ['правка', 'правки', 'правок'])}`;
 
-function fmt(sec, { ms = false, hours = longVideo() } = {}) {
-  sec = Math.max(0, sec || 0);
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
+function fmt(sec, { ms = true, hours = longVideo() } = {}) {
+  // Считаем в целых миллисекундах: иначе 1.2 с из-за плавающей точки показывается как 00:01.199
+  const total = ms ? Math.round(Math.max(0, sec || 0) * 1000) : Math.floor(Math.max(0, sec || 0)) * 1000;
+  const h = Math.floor(total / 3600000);
+  const m = Math.floor((total % 3600000) / 60000);
+  const s = Math.floor((total % 60000) / 1000);
   const p = (x, n = 2) => String(x).padStart(n, '0');
   let out = hours || h > 0 ? `${p(h)}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
-  if (ms) out += '.' + p(Math.floor((sec % 1) * 1000), 3);
+  if (ms) out += '.' + p(total % 1000, 3);
   return out;
 }
 
@@ -110,12 +111,17 @@ const store = {
 const DEFAULT_SETTINGS = {
   autopause: true,
   speed: 1,
-  export: { format: 'html', ms: false, showType: true, hideDone: false, links: true, header: false, excluded: [] },
+  export: { format: 'html', ms: true, showType: true, hideDone: false, links: true, header: false, excluded: [] },
 };
 
 function loadSettings() {
   const s = store.get(SETTINGS_KEY) || {};
-  return { ...DEFAULT_SETTINGS, ...s, export: { ...DEFAULT_SETTINGS.export, ...(s.export || {}) } };
+  const out = { ...DEFAULT_SETTINGS, ...s, export: { ...DEFAULT_SETTINGS.export, ...(s.export || {}) } };
+  if (!out.msEverywhere) {
+    out.export.ms = true; // таймкоды теперь везде с миллисекундами
+    out.msEverywhere = true;
+  }
+  return out;
 }
 const saveSettings = () => store.set(SETTINGS_KEY, state.settings);
 
@@ -1344,7 +1350,7 @@ function renderComposer(live = player.mode ? player.time() : 0) {
     ? `Правка к моменту ${fmt(pending ?? live)}`
     : step === 'open'
       ? `Начало ${fmt(markIn)}. Нажми «Конец здесь» — или сразу пиши правку`
-      : `Правка к отрезку ${fmt(markIn)}–${fmt(markOut)} (${Math.round(Math.abs(markOut - markIn))} с)`;
+      : `Правка к отрезку ${fmt(markIn)}–${fmt(markOut)} (${Math.abs(markOut - markIn).toFixed(1)} с)`;
   if (el.stampHint.textContent !== hint) el.stampHint.textContent = hint;
   el.addBtn.disabled = !state.project || (!el.noteInput.value.trim() && markIn === null && !state.attach);
 }
@@ -1459,7 +1465,7 @@ function renderFilters() {
 function noteHTML(n) {
   const types = state.types.includes(n.type) ? state.types : [...state.types, n.type];
   const span = n.end !== null
-    ? `${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${Math.round(n.end - n.seconds)} с</span>`
+    ? `${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>`
     : fmt(n.seconds);
   return `
     <article class="note ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
@@ -1768,7 +1774,7 @@ function videoInfo(p) {
     file: p.kind === 'file' ? p.name : undefined,
     path: p.path || undefined,
     url: p.url || undefined,
-    duration: p.duration ? fmt(p.duration, { hours: true }) : undefined,
+    duration: p.duration ? fmt(p.duration, { hours: true, ms: false }) : undefined,
     durationSeconds: p.duration || undefined,
     resolution: m.width && m.height ? `${m.width}×${m.height}` : undefined,
     sizeBytes: m.size || undefined,
@@ -1813,7 +1819,7 @@ function describeShape(s) {
 }
 
 function shotName(n, i) {
-  return `shots/${String(i + 1).padStart(2, '0')}_${fmt(n.seconds, { hours: true }).replace(/:/g, '-')}.jpg`;
+  return `shots/${String(i + 1).padStart(2, '0')}_${fmt(n.seconds, { hours: true, ms: false }).replace(/:/g, '-')}.jpg`;
 }
 
 async function ensureShots(notes) {
@@ -1892,7 +1898,7 @@ function buildReport(p, opts, img = (n) => shots.cache.get(n.id)) {
     const link = ytLink(p, n.seconds);
     const src = n.shot ? img(n, i) : null;
     return `<article class="item${n.done ? ' done' : ''}" style="--c:${typeColor(n.type)}">
-<div class="meta"><span class="num">${i + 1}</span>${link ? `<a class="tc" href="${esc(link)}" target="_blank">${time}</a>` : `<span class="tc">${time}</span>`}${n.end !== null ? `<span class="dur">${Math.round(n.end - n.seconds)} с</span>` : ''}${opts.showType ? `<span class="type">${esc(n.type)}</span>` : ''}${n.done ? '<span class="ok">✓ готово</span>' : ''}</div>
+<div class="meta"><span class="num">${i + 1}</span>${link ? `<a class="tc" href="${esc(link)}" target="_blank">${time}</a>` : `<span class="tc">${time}</span>`}${n.end !== null ? `<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>` : ''}${opts.showType ? `<span class="type">${esc(n.type)}</span>` : ''}${n.done ? '<span class="ok">✓ готово</span>' : ''}</div>
 ${n.text ? `<p>${esc(n.text)}</p>` : ''}
 ${src ? `<img src="${esc(src)}" alt="Кадр ${time}" loading="lazy">` : ''}
 ${n.shapes && !src ? `<ul class="marks">${n.shapes.map((sh) => `<li>${esc(describeShape(sh))}</li>`).join('')}</ul>` : ''}
