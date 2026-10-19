@@ -321,6 +321,9 @@ const el = {
   tlMarkers: $('#tlMarkers'),
   tlHead: $('#tlHead'),
   tlTip: $('#tlTip'),
+  tlTrack: $('#tlTrack'),
+  tlLane: $('#tlLane'),
+  tlNow: $('#tlNow'),
   tlTipText: $('#tlTipText'),
   tlThumb: $('#tlThumb'),
   tlSel: $('#tlSel'),
@@ -350,6 +353,8 @@ const el = {
   optPath: $('#optPath'),
   backBtn: $('#backBtn'),
   playBtn: $('#playBtn'),
+  muteBtn: $('#muteBtn'),
+  fullscreenBtn: $('#fullscreenBtn'),
   fwdBtn: $('#fwdBtn'),
   clock: $('#clock'),
   speedSeg: $('#speedSeg'),
@@ -501,6 +506,19 @@ const player = {
     if (this.mode === 'yt') this.ytReady && this.yt.seekTo(t, true);
     else if (this.mode === 'video') el.video.currentTime = t;
     tick();
+  },
+  muted() {
+    if (this.mode === 'yt') return this.ytReady ? this.yt.isMuted() : false;
+    return el.video.muted;
+  },
+  toggleMute() {
+    if (this.mode === 'yt') {
+      if (!this.ytReady) return;
+      this.muted() ? this.yt.unMute() : this.yt.mute();
+    } else {
+      el.video.muted = !el.video.muted;
+    }
+    setTimeout(tick, 50);
   },
   setRate(r) {
     if (this.mode === 'yt') this.ytReady && this.yt.setPlaybackRate(r);
@@ -691,7 +709,8 @@ async function mountYouTube(id, startAt = 0) {
     return;
   }
   if (state.project !== p) return;
-  const vars = { rel: 0, playsinline: 1, modestbranding: 1 };
+  // Свою панель и клавиши YouTube прячем — управление только наше, чтобы не путаться
+  const vars = { rel: 0, playsinline: 1, modestbranding: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3 };
   if (startAt > 1) vars.start = Math.floor(startAt);
   if (/^https?:$/.test(location.protocol)) vars.origin = location.origin;
   player.yt = new YT.Player('ytMount', {
@@ -1615,9 +1634,11 @@ function tick() {
   const pct = state.dur ? clamp((t / state.dur) * 100, 0, 100) : 0;
   el.tlProgress.style.width = pct + '%';
   el.tlHead.style.left = pct + '%';
+  el.tlNow.style.left = pct + '%';
   el.clock.textContent = `${fmt(t)} / ${fmt(state.dur)}`;
   renderSelection(t);
   el.player.classList.toggle('playing', !player.paused());
+  el.player.classList.toggle('muted', player.muted());
   renderComposer(t);
 
   // Подсветка правки, которая сейчас на экране
@@ -2553,6 +2574,14 @@ function bind() {
 
   // Плеер
   el.playBtn.addEventListener('click', () => player.toggle());
+  el.muteBtn.addEventListener('click', () => player.toggleMute());
+  el.fullscreenBtn.addEventListener('click', toggleFullscreen);
+  // Без нативных контролов клик по видео — пауза/пуск (кроме режима обводки: там холст сверху)
+  el.video.addEventListener('click', () => player.toggle());
+  el.video.addEventListener('dblclick', toggleFullscreen);
+  el.ytHost.addEventListener('click', () => player.toggle());
+  el.ytHost.addEventListener('dblclick', toggleFullscreen);
+  document.addEventListener('fullscreenchange', () => requestAnimationFrame(() => paintLayer()));
   el.backBtn.addEventListener('click', () => player.seek(player.time() - 5));
   el.fwdBtn.addEventListener('click', () => player.seek(player.time() + 5));
   el.speedSeg.innerHTML = SPEEDS.map((s) => `<button data-speed="${s}">${s}×</button>`).join('');
@@ -2576,14 +2605,36 @@ function bind() {
     saveSettings();
   });
 
-  // Карта правок: клик — перейти, протянуть — выделить кусок
+  // Таймлайн в два этажа. Сверху прогресс: клик и протягивание перематывают видео.
+  // Снизу дорожка правок: метки, выделение куска протягиванием; видео она не двигает
   let suppressClick = false;
-  el.timeline.addEventListener('pointerdown', (e) => {
+  let scrubbing = false;
+  let lastScrub = 0;
+  el.tlTrack.addEventListener('pointerdown', (e) => {
+    if (!state.dur || e.button !== 0) return;
+    scrubbing = true;
+    el.tlTrack.setPointerCapture(e.pointerId);
+    player.seek(timelineTime(e).t);
+  });
+  el.tlTrack.addEventListener('pointermove', (e) => {
+    if (!scrubbing || Date.now() - lastScrub < 60) return;
+    lastScrub = Date.now();
+    player.seek(timelineTime(e).t);
+  });
+  const endScrub = (e) => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    if (e?.clientX !== undefined) player.seek(timelineTime(e).t);
+  };
+  el.tlTrack.addEventListener('pointerup', endScrub);
+  el.tlTrack.addEventListener('pointercancel', () => { scrubbing = false; });
+
+  el.tlLane.addEventListener('pointerdown', (e) => {
     if (!state.dur || e.button !== 0 || e.target.closest('.tl-mark')) return;
     state.selecting = { t0: timelineTime(e).t, x0: e.clientX, moved: false, wasPlaying: !player.paused() };
-    el.timeline.setPointerCapture(e.pointerId);
+    el.tlLane.setPointerCapture(e.pointerId);
   });
-  el.timeline.addEventListener('pointermove', (e) => {
+  el.tlLane.addEventListener('pointermove', (e) => {
     const sel = state.selecting;
     if (!sel) return;
     if (!sel.moved && Math.abs(e.clientX - sel.x0) < 5) return;
@@ -2591,7 +2642,6 @@ function bind() {
       sel.moved = true;
       player.pause();
     }
-    // Видео при выделении не перематываем — прогресс стоит, границы видны в подсказке
     const { t } = timelineTime(e);
     state.markIn = Math.min(sel.t0, t);
     state.markOut = Math.max(sel.t0, t);
@@ -2614,13 +2664,13 @@ function bind() {
     renderSelection();
     renderComposer();
   };
-  el.timeline.addEventListener('pointerup', () => {
+  el.tlLane.addEventListener('pointerup', () => {
     const moved = state.selecting?.moved;
     endSelect();
-    if (moved) el.tlTip.hidden = true; // после протягивания курсор часто уже не над картой
+    if (moved) el.tlTip.hidden = true; // после протягивания курсор часто уже не над дорожкой
   });
-  el.timeline.addEventListener('pointercancel', endSelect);
-  el.timeline.addEventListener('click', (e) => {
+  el.tlLane.addEventListener('pointercancel', endSelect);
+  el.tlLane.addEventListener('click', (e) => {
     if (suppressClick) { suppressClick = false; return; }
     if (!state.dur) return;
     const mark = e.target.closest('.tl-mark');
@@ -2636,9 +2686,9 @@ function bind() {
       node?.classList.add('flash');
       return;
     }
-    // Отрезок выделен — клик мимо него сбрасывает выделение (подсказка об этом предупреждает)
+    // Отрезок выделен — клик по дорожке его сбрасывает; без отрезка — переходим в этот момент
     if (state.markIn !== null) clearRange();
-    player.seek(timelineTime(e).t);
+    else player.seek(timelineTime(e).t);
     showTimelineTip(e);
   });
   const showTimelineTip = (e) => {
@@ -2650,8 +2700,10 @@ function bind() {
     const thumbOk = player.mode === 'video' && el.tlThumb.videoWidth > 0;
     el.tlThumb.hidden = !thumbOk;
     if (thumbOk) thumbSeek(n ? n.seconds : t);
+    const onLane = !!e.target.closest('.tl-lane');
     el.tlTipText.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
       : state.selecting?.moved ? `<b>${fmt(state.markIn)} → ${fmt(state.markOut)}</b>`
+      : !onLane ? `<b>${fmt(t)}</b>`
       : state.markIn !== null ? `<b>${fmt(t)}</b><span class="muted">клик — сбросить отрезок</span>`
       : `<b>${fmt(t)}</b><span class="muted">протяни — выделить кусок</span>`;
     // Подсказка по центру курсора, но не вылезает за края карты
@@ -2903,6 +2955,11 @@ function toggleReading() {
   applyReading();
 }
 
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else el.playerFrame.requestFullscreen?.().catch(() => {});
+}
+
 /* ---------- тема ---------- */
 
 const THEME_KEY = 'videonotes::theme';
@@ -2970,7 +3027,6 @@ function onHotkey(e) {
   }
 
   if (inField || e.altKey || mod) return;
-  if (e.target === el.video && ['Space', 'ArrowLeft', 'ArrowRight'].includes(e.code)) return;
 
   const key = (e.shiftKey && e.code === 'Slash') || e.key === '?' ? '?' : e.code;
   const actions = {
@@ -2986,6 +3042,8 @@ function onHotkey(e) {
     KeyE: () => openExport(),
     KeyD: () => openDraw(),
     KeyR: () => toggleReading(),
+    KeyM: () => player.toggleMute(),
+    KeyF: () => toggleFullscreen(),
     '?': () => el.hotkeysDialog.showModal(),
   };
   if (actions[key]) {

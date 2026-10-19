@@ -641,14 +641,18 @@ main {
   height: max(320px, calc(100vh - var(--topbar-h) - 200px));
 }
 .yt-host iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* Прозрачный слой над YouTube: его меню при наведении не вылезает, клик — наша пауза/пуск */
+.yt-host::after { content: ''; position: absolute; inset: 0; cursor: pointer; }
 
 /* Карта правок */
 .timeline {
   position: relative;
+  display: grid;
+  gap: 8px;
   padding: 12px 16px 6px;
-  cursor: pointer;
   user-select: none;
 }
+.tl-track { cursor: pointer; }
 .tl-track {
   position: relative;
   height: 8px;
@@ -675,12 +679,33 @@ main {
   box-shadow: 0 0 0 3px rgba(0, 13, 195, 0.35);
   pointer-events: none;
 }
+.tl-lane {
+  position: relative;
+  height: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+  cursor: crosshair;
+}
+.tl-lane:hover { border-color: var(--ink); }
+/* Тонкая линия текущего момента на дорожке правок */
+.tl-now {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+}
 .tl-markers { position: absolute; inset: 0; }
 .tl-mark {
   position: absolute;
-  top: -6px;
+  top: 3px;
   width: 4px;
-  height: 20px;
+  height: 16px;
   margin-left: -2px;
   padding: 0;
   border: 0;
@@ -689,10 +714,10 @@ main {
   opacity: 0.9;
   transition: transform 0.12s, opacity 0.12s;
 }
-.tl-mark:hover { transform: scaleY(1.25); opacity: 1; }
+.tl-mark:hover { transform: scaleY(1.15); opacity: 1; }
 .tl-mark.range {
-  top: -3px;
-  height: 14px;
+  top: 3px;
+  height: 16px;
   margin-left: 0;
   border-radius: 4px;
   background: color-mix(in srgb, var(--c) 45%, transparent);
@@ -745,6 +770,14 @@ main {
 .ctl-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .clock { margin-left: 6px; color: var(--muted); font-size: 14px; }
 .player:not(.playing) .i-pause, .player.playing .i-play { display: none; }
+.player:not(.muted) .i-muted, .player.muted .i-sound { display: none; }
+.player-frame video { cursor: pointer; }
+
+/* Во весь экран — плеер целиком, вместе с обводками */
+.player-frame:fullscreen { align-items: center; background: #000; }
+.player-frame:fullscreen video { width: 100%; height: 100%; max-height: none; }
+.player-frame:fullscreen .yt-host,
+.player-frame.is-yt.vertical:fullscreen .yt-host { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; }
 
 .segmented {
   display: inline-flex;
@@ -1341,8 +1374,8 @@ main {
 .timeline { touch-action: none; }
 .tl-sel {
   position: absolute;
-  top: -5px;
-  bottom: -5px;
+  top: 0;
+  bottom: 0;
   border: 1.5px solid var(--contrast);
   border-radius: 5px;
   background: color-mix(in srgb, var(--contrast) 16%, transparent);

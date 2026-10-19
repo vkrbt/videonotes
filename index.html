@@ -99,7 +99,7 @@
       <div class="stage">
         <div class="player card-3d">
           <div class="player-frame" id="playerFrame">
-            <video id="video" playsinline controls preload="metadata"></video>
+            <video id="video" playsinline preload="metadata"></video>
             <div class="yt-host" id="ytHost"></div>
             <canvas class="draw-layer" id="drawLayer"></canvas>
             <div class="draw-bar" id="drawBar" hidden>
@@ -119,11 +119,16 @@
           </div>
 
           <div class="timeline" id="timeline">
-            <div class="tl-track">
+            <!-- Сверху — прогресс: клик и протягивание перематывают видео -->
+            <div class="tl-track" id="tlTrack">
               <div class="tl-progress" id="tlProgress"></div>
-              <div class="tl-sel" id="tlSel" hidden></div>
-              <div class="tl-markers" id="tlMarkers"></div>
               <div class="tl-head" id="tlHead"></div>
+            </div>
+            <!-- Снизу — дорожка правок: метки и выделение куска, видео она не двигает -->
+            <div class="tl-lane" id="tlLane">
+              <div class="tl-markers" id="tlMarkers"></div>
+              <div class="tl-sel" id="tlSel" hidden></div>
+              <div class="tl-now" id="tlNow"></div>
             </div>
             <div class="tl-tip" id="tlTip" hidden>
               <video class="tl-thumb" id="tlThumb" muted playsinline preload="auto" hidden></video>
@@ -144,6 +149,10 @@
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 5 7 7-7 7"/><path d="M4 5l7 7-7 7"/></svg>
               </button>
               <span class="clock mono" id="clock">00:00 / 00:00</span>
+              <button class="iconbtn" id="muteBtn" title="Звук (M)" aria-label="Выключить звук">
+                <svg class="i-sound" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+                <svg class="i-muted" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="m17 9 5 6M22 9l-5 6"/></svg>
+              </button>
             </div>
             <div class="ctl-group">
               <button class="btn btn-sm" id="drawBtn" title="Обвести на кадре (D)">
@@ -151,6 +160,9 @@
                 Обвести
               </button>
               <div class="segmented" id="speedSeg" role="group" aria-label="Скорость"></div>
+              <button class="iconbtn" id="fullscreenBtn" title="Во весь экран (F)" aria-label="Во весь экран">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+              </button>
               <label class="switch" title="Ставить видео на паузу, когда начинаешь печатать">
                 <input type="checkbox" id="autopauseToggle">
                 <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -318,6 +330,7 @@
         <dt><kbd>I</kbd> / <kbd>O</kbd></dt><dd>Начало / конец отрезка</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd>, при наборе <kbd>⌥1</kbd>–<kbd>⌥9</kbd></dt><dd>Выбрать тип правки</dd>
         <dt><kbd>R</kbd></dt><dd>Режим чтения: правки широко, видео узко</dd>
+        <dt><kbd>M</kbd> / <kbd>F</kbd></dt><dd>Звук / во весь экран</dd>
         <dt><kbd>D</kbd></dt><dd>Обвести на кадре (Enter — готово, Esc — отмена, ⌘Z — шаг назад)</dd>
         <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
         <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки</dd>
