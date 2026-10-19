@@ -324,6 +324,7 @@ const el = {
   tlTrack: $('#tlTrack'),
   tlLane: $('#tlLane'),
   tlNow: $('#tlNow'),
+  tlGuide: $('#tlGuide'),
   tlTipText: $('#tlTipText'),
   tlThumb: $('#tlThumb'),
   tlSel: $('#tlSel'),
@@ -2701,6 +2702,9 @@ function bind() {
     el.tlThumb.hidden = !thumbOk;
     if (thumbOk) thumbSeek(n ? n.seconds : t);
     const onLane = !!e.target.closest('.tl-lane');
+    // Полоска-указатель на дорожке правок (над меткой не нужна — там клик ведёт к правке)
+    el.tlGuide.hidden = !(onLane || state.selecting) || !!n;
+    if (!el.tlGuide.hidden) el.tlGuide.style.left = (t / state.dur) * 100 + '%';
     el.tlTipText.innerHTML = n ? `<b>${fmt(n.seconds)}</b>${esc(n.text || n.type)}`
       : state.selecting?.moved ? `<b>${fmt(state.markIn)} → ${fmt(state.markOut)}</b>`
       : !onLane ? `<b>${fmt(t)}</b>`
@@ -2713,7 +2717,7 @@ function bind() {
     el.tlTip.style.left = clamp(x - tw / 2, 8, Math.max(8, w - tw - 8)) + 'px';
   };
   el.timeline.addEventListener('mousemove', showTimelineTip);
-  el.timeline.addEventListener('mouseleave', () => { el.tlTip.hidden = true; });
+  el.timeline.addEventListener('mouseleave', () => { el.tlTip.hidden = true; el.tlGuide.hidden = true; });
 
   // Обводка на кадре
   el.drawBtn.addEventListener('click', () => openDraw());
