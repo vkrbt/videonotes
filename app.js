@@ -2544,7 +2544,6 @@ function bind() {
 
   // Карта правок: клик — перейти, протянуть — выделить кусок
   let suppressClick = false;
-  let lastScrub = 0;
   el.timeline.addEventListener('pointerdown', (e) => {
     if (!state.dur || e.button !== 0 || e.target.closest('.tl-mark')) return;
     state.selecting = { t0: timelineTime(e).t, x0: e.clientX, moved: false, wasPlaying: !player.paused() };
@@ -2558,13 +2557,10 @@ function bind() {
       sel.moved = true;
       player.pause();
     }
+    // Видео при выделении не перематываем — прогресс стоит, границы видны в подсказке
     const { t } = timelineTime(e);
     state.markIn = Math.min(sel.t0, t);
     state.markOut = Math.max(sel.t0, t);
-    if (Date.now() - lastScrub > 120) {
-      lastScrub = Date.now();
-      player.seek(t); // видно кадр под курсором
-    }
     renderSelection();
     renderComposer();
   });
@@ -2577,7 +2573,6 @@ function bind() {
       state.markIn = null;
       state.markOut = null;
     } else {
-      player.seek(state.markIn);
       if (sel.wasPlaying && state.settings.autopause) state.pausedByComposer = true;
       else if (sel.wasPlaying) player.play();
       focusNote();
