@@ -1037,6 +1037,7 @@ main {
 .stamp.frozen { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 .stamp.frozen::before { background: var(--accent-text); animation: none; }
 .stamp .arrow { color: var(--dim); }
+.stamp-now { flex: 0 0 auto; justify-content: center; padding: 8px 10px; }
 .range-ctl { display: flex; gap: 6px; }
 .range-ctl { flex: 0 0 auto; }
 .range-ctl .act { justify-content: center; gap: 6px; padding: 8px 12px; font-size: 13px; height: 100%; }
@@ -1190,6 +1191,8 @@ main {
 }
 .tc:hover { background: var(--accent-soft); color: var(--link-hover); }
 .tc .dur { color: var(--dim); font-weight: 400; margin-left: 4px; }
+.tool.retime { width: 26px; height: 26px; margin-left: -4px; opacity: 0; transition: opacity 0.12s; }
+.note:hover .tool.retime, .note:focus-within .tool.retime, .tool.retime:focus-visible { opacity: 1; }
 
 .type-select {
   max-width: 130px;
@@ -1446,7 +1449,7 @@ main {
   .controls { padding-inline: 12px; }
   .export-grid { grid-template-columns: 1fr; }
   .preview { min-height: 200px; }
-  .note-tools { opacity: 1; }
+  .note-tools, .tool.retime { opacity: 1; }
   .field-sm { font-size: 16px; }
   .vid-actions .btn { padding-inline: 10px; }
 }

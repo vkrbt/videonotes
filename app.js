@@ -384,6 +384,7 @@ const el = {
   rangeBtn: $('#rangeBtn'),
   stampHint: $('#stampHint'),
   rangeClearBtn: $('#rangeClearBtn'),
+  stampNowBtn: $('#stampNowBtn'),
   noteInput: $('#noteInput'),
   addBtn: $('#addBtn'),
 
@@ -526,11 +527,13 @@ const player = {
     else if (this.mode === 'video') el.video.pause();
   },
   toggle() { this.paused() ? this.play() : this.pause(); },
-  seek(t) {
+  // follow: черновик правки переезжает вслед за перемоткой
+  seek(t, { follow = true } = {}) {
     const d = this.duration();
     t = d ? clamp(t, 0, d - 0.05) : Math.max(0, t);
     if (this.mode === 'yt') this.ytReady && this.yt.seekTo(t, true);
     else if (this.mode === 'video') el.video.currentTime = t;
+    if (follow) followComposer(t);
     tick();
   },
   muted() {
@@ -1217,7 +1220,7 @@ function renderAttach() {
 function openShot(n) {
   const img = shots.cache.get(n.id);
   if (!img) {
-    player.seek(n.seconds);
+    player.seek(n.seconds, { follow: false });
     player.pause();
     return;
   }
@@ -1527,6 +1530,9 @@ function renderComposer(live = player.mode ? player.time() : 0) {
   }
   if (el.stamp.innerHTML !== html) el.stamp.innerHTML = html;
   el.stamp.classList.toggle('frozen', pending !== null || markIn !== null);
+  // Момент разошёлся с плеером (видео играет дальше) — кнопка «взять текущий»
+  const stale = markIn === null && pending !== null && Math.abs(live - pending) > 0.05;
+  if (el.stampNowBtn.hidden === stale) el.stampNowBtn.hidden = !stale;
 
   // Одна кнопка ведёт по шагам: «Отрезок» → «Конец здесь» → отрезок готов
   const step = markIn === null ? 'none' : markOut === null ? 'open' : 'closed';
@@ -1542,6 +1548,20 @@ function renderComposer(live = player.mode ? player.time() : 0) {
       : `Правка к отрезку ${fmt(markIn)}–${fmt(markOut)} (${Math.abs(markOut - markIn).toFixed(1)} с)`;
   if (el.stampHint.textContent !== hint) el.stampHint.textContent = hint;
   el.addBtn.disabled = !state.project || (!el.noteInput.value.trim() && markIn === null && !state.attach);
+}
+
+/* Начал писать на одном моменте, перемотал на другой — момент правки едет следом.
+   Не трогаем готовый отрезок и пометки на кадре: они привязаны к своему кадру. */
+function followComposer(t) {
+  if (state.pending === null || state.markOut !== null || state.attach) return;
+  state.pending = t;
+}
+
+function stampToNow() {
+  if (state.markIn !== null && state.markOut === null) state.markOut = player.time();
+  else if (state.pending !== null) state.pending = player.time();
+  renderComposer();
+  focusNote();
 }
 
 function onComposerInput() {
@@ -1663,6 +1683,7 @@ function noteHTML(n) {
     <article class="note ${n.done ? 'done' : ''} ${n.id === state.activeId ? 'active' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
       <div class="note-top">
         <button class="tc" data-act="seek" title="Перейти к моменту">${span}</button>
+        <button class="tool retime" data-act="retime" title="Перенести на текущий момент" aria-label="Перенести на текущий момент">${ICON.retime}</button>
         <select class="type-select" data-act="type" aria-label="Тип правки">
           ${types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
@@ -1725,7 +1746,6 @@ function toggleNoteMenu(node, n) {
   menu.setAttribute('role', 'menu');
   menu.innerHTML = `
     <button data-act="draw" role="menuitem">${ICON.frame}<span>${n.shapes ? 'Изменить пометки на кадре' : 'Обвести на кадре'}</span></button>
-    <button data-act="retime" role="menuitem">${ICON.retime}<span>Перенести на текущий момент</span></button>
     <button data-act="delete" role="menuitem" class="danger">${ICON.trash}<span>Удалить</span></button>`;
   node.append(menu);
   node.classList.add('menu-open');
@@ -2979,7 +2999,7 @@ function bind() {
   el.shotEditBtn.addEventListener('click', () => {
     const n = findNote(el.shotDialog.dataset.id);
     el.shotDialog.close();
-    if (n) { player.seek(n.seconds); openDraw({ target: n.id }); }
+    if (n) { player.seek(n.seconds, { follow: false }); openDraw({ target: n.id }); }
   });
 
   // Новая правка
@@ -2998,12 +3018,8 @@ function bind() {
     }
   });
   el.addBtn.addEventListener('click', addNote);
-  el.stamp.addEventListener('click', () => {
-    if (state.markIn !== null && state.markOut === null) state.markOut = player.time();
-    else if (state.pending !== null) state.pending = player.time();
-    renderComposer();
-    focusNote();
-  });
+  el.stamp.addEventListener('click', stampToNow);
+  el.stampNowBtn.addEventListener('click', stampToNow);
   el.rangeBtn.addEventListener('click', () => {
     if (state.markIn === null) { markIn(); focusNote(); }
     else markOut();
@@ -3046,7 +3062,7 @@ function bind() {
       case 'delete': deleteNote(n.id); break;
       case 'shot': openShot(n); break;
       case 'draw':
-        player.seek(n.seconds);
+        player.seek(n.seconds, { follow: false });
         openDraw({ target: n.id });
         break;
     }
