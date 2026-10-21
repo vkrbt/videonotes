@@ -1326,6 +1326,7 @@ const tr = {
   line: 0,
   manual: false,    // листают колесом — не дёргаем строки, пока не пойдёт следующее слово
   saveTimer: null,
+  quoted: null,     // цитата, которую подставили в правку последней — её заменит новое выделение
 };
 
 /* ---------- хранение: текст упакован — строка слов и два Float32Array с таймингами ---------- */
@@ -1545,6 +1546,7 @@ async function transcribe() {
   renderTranscript();
   renderAsrRanges();
   el.textBar.hidden = true;
+  el.textStatus.hidden = false;
   setTextProgress(0, 'Готовлю звук…');
   try {
     tr.src = await audioSource(dur);
@@ -1558,10 +1560,15 @@ async function transcribe() {
   tr.worker = new Worker('asr-worker.js', { type: 'module' });
   tr.worker.onmessage = ({ data: m }) => {
     if (m.type === 'download') {
+      // только полоса: меняющиеся цифры дёргали плашку
       el.textBar.hidden = false;
-      setTextProgress(m.loaded / m.total, `Скачиваю модель: ${Math.round(m.loaded / 1e6)} из ${Math.round(m.total / 1e6)} МБ — один раз`);
+      el.textStatus.hidden = true;
+      el.textProgress.title = `Скачиваю модель, один раз: ${Math.round(m.total / 1e6)} МБ`;
+      setTextProgress(m.loaded / m.total, null);
     } else if (m.type === 'ready') {
       el.textBar.hidden = true;
+      el.textStatus.hidden = false;
+      el.textProgress.title = '';
     } else if (m.type === 'words') {
       tr.pending?.resolve(m.words);
     } else if (m.type === 'error') {
@@ -1862,8 +1869,13 @@ function noteFromWords() {
   state.markIn = s;
   state.markOut = e;
   state.pending = s;
-  const cur = el.noteInput.value.trim();
-  el.noteInput.value = cur ? `${cur}\n«${quote}» — ` : `«${quote}» — `;
+  // Выделил заново, пока правка не добавлена, — прежняя цитата и её отрезок заменяются новыми,
+  // а то, что успел дописать после цитаты, остаётся
+  const quoted = `«${quote}» — `;
+  const cur = el.noteInput.value;
+  if (tr.quoted && cur.includes(tr.quoted)) el.noteInput.value = cur.replace(tr.quoted, quoted);
+  else el.noteInput.value = cur.trim() ? `${quoted}${cur.trim()}` : quoted;
+  tr.quoted = quoted;
   autosize(el.noteInput);
   clearWordSel();
   renderSelection();
