@@ -2811,30 +2811,40 @@ function buildAgentPrompt(p, opts) {
 }
 
 const REPORT_CSS = `
-*{box-sizing:border-box}body{margin:0;background:#070709;color:#fff;font:15px/1.55 Manrope,-apple-system,system-ui,sans-serif}
-main{max-width:880px;margin:0 auto;padding:40px 24px 60px}
+*{box-sizing:border-box}body{margin:0;background:#070709;color:#fff;font:14px/1.5 Manrope,-apple-system,system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:24px 16px 48px}
 .brand{font-weight:800;font-size:12px;letter-spacing:.14em;color:#8ea0ff;text-transform:uppercase}
-h1{margin:10px 0 18px;font-size:30px;line-height:1.15}
-.facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0 0 18px;padding:16px 18px;border:2px solid #4a4a5e;border-bottom-width:4px;border-radius:16px;background:#0f0f18}
+h1{margin:6px 0 12px;font-size:22px;line-height:1.2}
+.facts{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:0 0 12px;padding:10px 12px;border:1px solid #4a4a5e;border-radius:12px;background:#0f0f18;font-size:13px}
 .facts dt{color:#888898}.facts dd{margin:0;word-break:break-all}
 .facts a,.tc{color:#8ea0ff}
-.how{margin:0 0 28px;color:#c8c8d8}
-.item{margin:0 0 14px;padding:16px 18px;border:1px solid rgba(255,255,255,.1);border-left:4px solid var(--c,#888);border-radius:14px;background:#161622;break-inside:avoid}
-.item.done{opacity:.55}
-.meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:6px}
+.how{margin:0 0 12px;color:#c8c8d8;font-size:13px}
+.item{margin:0 0 8px;padding:9px 12px;border:1px solid rgba(255,255,255,.1);border-left:4px solid var(--c,#888);border-radius:10px;background:#161622;break-inside:avoid}
+.item[hidden]{display:none}
+.item.done{opacity:.5}.item.done p{text-decoration:line-through;text-decoration-color:rgba(127,127,127,.6)}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:2px}
+.tk{width:17px;height:17px;margin:0;accent-color:#35d07f;cursor:pointer}
+.flt{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 -16px 10px;padding:8px 16px;background:#070709;border-bottom:1px solid rgba(255,255,255,.1)}
+.flt label{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 7px;border:1px solid rgba(255,255,255,.14);border-radius:99px;font-size:12.5px;font-weight:600;cursor:pointer;user-select:none}
+.flt label:has(input:not(:checked)){opacity:.45}
+.flt input{margin:0;accent-color:#8ea0ff}
+.flt i{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.flt b{color:#888898;font-weight:700}
+.flt .sep{width:1px;height:18px;margin:0 4px;background:rgba(255,255,255,.14)}
+.flt .shown{margin-left:auto;color:#888898;font-size:12.5px}
 .num{color:#888898;font-weight:800}
-.tc{font:600 15px ui-monospace,SFMono-Regular,Menlo,monospace;text-decoration:none}
+.tc{font:600 13.5px ui-monospace,SFMono-Regular,Menlo,monospace;text-decoration:none}
 .dur{color:#888898;font-size:13px}
 .type{padding:2px 10px;border-radius:99px;background:color-mix(in srgb,var(--c) 18%,transparent);color:color-mix(in srgb,var(--c) 72%,currentColor);font-size:12.5px;font-weight:700}
 .ok{color:#35d07f;font-size:13px;font-weight:700}
-.item p{margin:4px 0 0;white-space:pre-wrap}
-.item img{display:block;max-width:100%;margin-top:12px;border-radius:10px}
+.item p{margin:2px 0 0;white-space:pre-wrap}
+.item img{display:block;max-width:100%;max-height:260px;margin-top:8px;border-radius:8px;object-fit:contain}
 .marks{margin:8px 0 0;padding-left:18px;color:#888898;font-size:13px}
 footer{margin-top:30px;color:#888898;font-size:12.5px}
 .desc{margin:0 0 22px;padding:16px 18px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#161622}
 .desc h2{margin:0 0 8px;font-size:15px;color:#c8c8d8}.desc p{margin:0;white-space:pre-wrap}.desc ul{margin:10px 0 0;padding-left:18px;font-size:13.5px}.desc a{color:#8ea0ff;word-break:break-all}
-@media (prefers-color-scheme:light){.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
-@media print{body{background:#fff;color:#111}.facts,.item{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
+@media (prefers-color-scheme:light){.flt{background:#f5f5fa;border-bottom-color:rgba(0,0,0,.1)}.flt label,.flt .sep{border-color:rgba(0,0,0,.14)}.flt .sep{background:rgba(0,0,0,.14)}.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
+@media print{.flt,.tk{display:none}body{background:#fff;color:#111}.facts,.item{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
 `;
 
 /** Отчёт для монтажёра. img(n, i) — откуда брать кадр: data URL (один файл) или shots/… (архив) */
@@ -2850,14 +2860,21 @@ function buildReport(p, opts, img = (n) => shots.cache.get(n.id)) {
     const time = n.end !== null ? `${tc(n.seconds)} – ${tc(n.end)}` : tc(n.seconds);
     const link = ytLink(p, n.seconds);
     const src = n.shot ? img(n, i) : null;
-    return `<article class="item${n.done ? ' done' : ''}" style="--c:${typeColor(n.type)}">
-<div class="meta"><span class="num">${i + 1}</span>${link ? `<a class="tc" href="${esc(link)}" target="_blank">${time}</a>` : `<span class="tc">${time}</span>`}${n.end !== null ? `<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>` : ''}${opts.showType ? `<span class="type">${esc(n.type)}</span>` : ''}${n.done ? '<span class="ok">✓ готово</span>' : ''}</div>
+    return `<article class="item${n.done ? ' done' : ''}" style="--c:${typeColor(n.type)}" data-id="${esc(n.id || i)}" data-type="${esc(n.type)}">
+<div class="meta"><input class="tk" type="checkbox"${n.done ? ' checked' : ''} title="Сделано" aria-label="Сделано"><span class="num">${i + 1}</span>${link ? `<a class="tc" href="${esc(link)}" target="_blank">${time}</a>` : `<span class="tc">${time}</span>`}${n.end !== null ? `<span class="dur">${(n.end - n.seconds).toFixed(1)} с</span>` : ''}${opts.showType ? `<span class="type">${esc(n.type)}</span>` : ''}</div>
 ${n.text ? `<p>${esc(n.text)}</p>` : ''}
 ${src ? `<img src="${esc(src)}" alt="Кадр ${time}" loading="lazy">` : ''}
 ${n.shapes && !src ? `<ul class="marks">${n.shapes.map((sh) => `<li>${esc(describeShape(sh))}</li>`).join('')}</ul>` : ''}
 </article>`;
   }).join('\n');
   const date = new Date().toLocaleString('ru-RU', { dateStyle: 'long', timeStyle: 'short' });
+  // Фильтр: какие типы правок смотреть и сделанные или нет — галочками, без перезагрузки
+  const types = [...new Set(notes.map((n) => n.type))];
+  const doneN = notes.filter((n) => n.done).length;
+  const filterBar = notes.length ? `<nav class="flt" aria-label="Какие правки показывать">${types.map((t) =>
+    `<label><input type="checkbox" data-f="type" value="${esc(t)}" checked><i style="--c:${typeColor(t)}"></i>${esc(t)} <b>${notes.filter((n) => n.type === t).length}</b></label>`).join('')
+  }<span class="sep"></span><label><input type="checkbox" data-f="open" checked>Не сделано <b data-c="open">${notes.length - doneN}</b></label><label><input type="checkbox" data-f="done" checked>Сделано <b data-c="done">${doneN}</b></label><span class="shown"></span></nav>` : '';
+  const reportId = `${p.key}|${p.updatedAt || ''}`;
   return `<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Правки — ${esc(p.title)}</title>
@@ -2868,10 +2885,51 @@ ${n.shapes && !src ? `<ul class="marks">${n.shapes.map((sh) => `<li>${esc(descri
 <h1>${esc(p.title)}</h1>
 <dl class="facts">${facts}<dt>Правок</dt><dd>${notes.length}</dd></dl>
 ${p.desc || sourceList(p).length ? `<section class="desc"><h2>Описание к публикации</h2>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}${sourceList(p).length ? `<ul>${sourceList(p).map((x) => `<li>${/^https?:\/\//.test(x) ? `<a href="${esc(x)}" target="_blank">${esc(x)}</a>` : esc(x)}</li>`).join('')}</ul>` : ''}</section>` : ''}
-<p class="how">Таймкоды — от начала файла. Цветная полоска слева — тип правки${notes.some((n) => n.shot) ? ', на кадрах обведено место, о котором речь' : ''}.</p>
+<p class="how">Таймкоды — от начала файла. Цветная полоска слева — тип правки${notes.some((n) => n.shot) ? ', на кадрах обведено место, о котором речь' : ''}. Галочкой отмечай сделанное — отметки запомнятся в этом браузере.</p>
+${filterBar}
 ${items}
 <footer>Собрано ${esc(date)} в Video Notes</footer>
-</main></body></html>`;
+</main>
+<script>
+(() => {
+  const key = 'vn-report:' + ${JSON.stringify(reportId).replace(/</g, '\\u003c')};
+  let st = {};
+  try { st = JSON.parse(localStorage.getItem(key)) || {}; } catch (e) {}
+  const items = [...document.querySelectorAll('.item')];
+  const fl = [...document.querySelectorAll('.flt input')];
+  const shown = document.querySelector('.flt .shown');
+  function apply() {
+    const types = new Set(fl.filter((x) => x.dataset.f === 'type' && x.checked).map((x) => x.value));
+    const open = fl.find((x) => x.dataset.f === 'open')?.checked ?? true;
+    const done = fl.find((x) => x.dataset.f === 'done')?.checked ?? true;
+    let n = 0, d = 0;
+    for (const it of items) {
+      const isDone = it.querySelector('.tk').checked;
+      if (isDone) d++;
+      it.hidden = !(types.has(it.dataset.type) && (isDone ? done : open));
+      if (!it.hidden) n++;
+    }
+    const cd = document.querySelector('[data-c="done"]'), co = document.querySelector('[data-c="open"]');
+    if (cd) cd.textContent = d;
+    if (co) co.textContent = items.length - d;
+    if (shown) shown.textContent = 'Показано ' + n + ' из ' + items.length;
+  }
+  for (const it of items) {
+    const cb = it.querySelector('.tk');
+    if (it.dataset.id in st) cb.checked = st[it.dataset.id];
+    it.classList.toggle('done', cb.checked);
+    cb.addEventListener('change', () => {
+      st[it.dataset.id] = cb.checked;
+      try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {}
+      it.classList.toggle('done', cb.checked);
+      apply();
+    });
+  }
+  fl.forEach((x) => x.addEventListener('change', apply));
+  apply();
+})();
+</script>
+</body></html>`;
 }
 
 /* ---------- ZIP без сжатия (JPEG всё равно не сжимается) ---------- */
