@@ -1635,6 +1635,7 @@ main {
   transition: transform 0.28s ease;
   will-change: transform;
 }
+.words .blk { margin: 0; }
 .words .w { padding: 2px 1px; border-radius: 5px; cursor: pointer; }
 .words .w:hover { background: var(--line-soft); }
 .words .w.noted { text-decoration: underline; text-decoration-color: var(--accent-text); text-decoration-thickness: 2px; text-underline-offset: 5px; }

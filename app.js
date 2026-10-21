@@ -552,7 +552,6 @@ const player = {
     if (this.mode === 'yt') this.ytReady && this.yt.seekTo(t, true);
     else if (this.mode === 'video') el.video.currentTime = t;
     if (follow) followComposer(t);
-    asrFocus(t);
     tick();
   },
   muted() {
@@ -1312,11 +1311,11 @@ const tr = {
   done: [],         // [[от, до]] — какие секунды уже расшифрованы
   spans: [],        // только окно слов в DOM
   win: [0, 0],      // [первый, последний+1] — какие слова сейчас в DOM
+  blocks: [],       // абзацы [от, до) по фразам и паузам: окно меняется целыми абзацами, строки не переразбиваются
   busy: false,
   worker: null,
   src: null,        // откуда брать куски звука (ffmpeg или короткий ролик в памяти)
   pending: null,    // ответ воркера на текущий кусок
-  focus: 0,         // с какой секунды брать следующий кусок
   prev: null,       // что было до «Расшифровать заново» — вернём, если ничего не выйдет
   sel: null,        // { a, b } — индексы слов, выделение всегда целыми словами
   drag: null,
@@ -1327,6 +1326,9 @@ const tr = {
   manual: false,    // листают колесом — не дёргаем строки, пока не пойдёт следующее слово
   saveTimer: null,
   quoted: null,     // цитата, которую подставили в правку последней — её заменит новое выделение
+  noAuto: false,    // нажали «Остановить» — сами не продолжаем, пока не нажмут «Продолжить»
+  autoAt: 0,        // когда последний раз проверяли, нужен ли текст впереди
+  autoFail: 0,      // после ошибки не пытаемся сами минуту
 };
 
 /* ---------- хранение: текст упакован — строка слов и два Float32Array с таймингами ---------- */
@@ -1343,7 +1345,7 @@ function unpackWords(p) {
 
 async function loadTranscript(p) {
   if (tr.busy) cancelTranscribe();
-  Object.assign(tr, { words: null, meta: null, done: [], sel: null, cur: -1, redo: false, manual: false });
+  Object.assign(tr, { words: null, meta: null, done: [], sel: null, cur: -1, redo: false, manual: false, noAuto: false, autoFail: 0, quoted: null });
   renderTranscript();
   renderAsrRanges();
   const v = await shots.run('readonly', (st) => st.get(p.key), 'transcripts').catch(() => null);
@@ -1493,10 +1495,6 @@ function renderAsrRanges() {
   el.tlAsr.innerHTML = d ? tr.done.map(([a, b]) => `<i style="left:${(a / d) * 100}%;width:${Math.max(0.3, ((b - a) / d) * 100)}%"></i>`).join('') : '';
 }
 
-function asrFocus(t) {
-  if (tr.busy) tr.focus = t;
-}
-
 function transcribePartial() {
   return !!(tr.words?.length && tr.meta?.partial);
 }
@@ -1521,6 +1519,30 @@ function asrLimits() {
   return { turbo: !!navigator.gpu && mem >= 8, light: mem <= 4 };
 }
 
+// Следующий кусок — у текущего места просмотра: сам кусок, следующий, предыдущий, ещё по одному
+// вперёд и назад (≈±90 с, больше 10 строк в обе стороны); потом остальное — сперва вперёд
+function pickPart(parts, t) {
+  const at = parts.findIndex((x) => t >= x.a && t < x.b);
+  const k = at < 0 ? parts.length - 1 : at;
+  for (const i of [k, k + 1, k - 1, k + 2, k - 2]) if (parts[i] && !parts[i].done) return parts[i];
+  return parts.find((x) => !x.done && x.a >= t) || parts.findLast((x) => !x.done) || null;
+}
+
+function covered(a, b) {
+  return tr.done.some(([x, y]) => x <= a + 0.05 && y >= b - 0.05);
+}
+
+// Смотрят видео, а впереди нет текста — недоделанная расшифровка продолжается сама
+function autoTranscribe(t) {
+  const now = Date.now();
+  if (now - tr.autoAt < 2000) return;
+  tr.autoAt = now;
+  if (tr.busy || tr.noAuto || now < tr.autoFail || !transcribePartial() || player.paused()) return;
+  const dur = player.duration() || state.dur;
+  if (covered(Math.max(0, t - 5), Math.min(dur, t + 60))) return;
+  transcribe({ auto: true });
+}
+
 function askWorker(msg, transfer) {
   return new Promise((resolve, reject) => {
     tr.pending = { resolve, reject };
@@ -1528,21 +1550,24 @@ function askWorker(msg, transfer) {
   });
 }
 
-async function transcribe() {
+async function transcribe({ auto = false } = {}) {
   const p = state.project;
   if (!p || tr.busy) return;
+  if (!auto) tr.noAuto = false;
   const dur = player.duration() || state.dur;
   if (!dur) { toast('Дождись, пока видео загрузится'); return; }
   if (dur > ASR.maxSec) { toast('Видео длиннее 3 часов — расшифровка в браузере займёт слишком много времени и памяти. Разрежь его на части.', { kind: 'error', timeout: 9000 }); return; }
-  let model = el.textModel.value;
+  // Само продолжаем с теми же моделью и языком, что начали, — не с тем, что сейчас в списках
+  let model = auto ? tr.meta.model : el.textModel.value;
   if (model === 'turbo' && !asrLimits().turbo) model = 'small';
-  const language = el.textLang.value || null;
+  const language = auto ? tr.meta.language || null : el.textLang.value || null;
   const resume = transcribePartial() && !tr.redo && tr.meta.model === model && (tr.meta.language || null) === language;
+  if (auto && !resume) return;
   if (!resume && tr.words?.length && !confirm('Расшифровать заново? Текущая расшифровка заменится новой.')) return;
   tr.prev = tr.words ? { words: tr.words, meta: tr.meta, done: tr.done } : null;
   if (!resume) { tr.words = []; tr.done = []; }
   tr.meta = { model, language, partial: true, at: Date.now(), duration: Math.round(dur) };
-  Object.assign(tr, { busy: true, redo: false, sel: null, focus: player.time() });
+  Object.assign(tr, { busy: true, redo: false, sel: null });
   renderTranscript();
   renderAsrRanges();
   el.textBar.hidden = true;
@@ -1587,7 +1612,7 @@ async function transcribe() {
   try {
     for (;;) {
       if (!tr.busy || state.project !== p) return;
-      const next = parts.find((x) => !x.done && x.b > tr.focus) || parts.find((x) => !x.done);
+      const next = pickPart(parts, player.time());
       if (!next) break;
       const from = Math.max(0, next.a - ASR.edge), to = Math.min(dur, next.b + ASR.edge);
       let audio;
@@ -1614,6 +1639,7 @@ async function transcribe() {
     toast(tr.words.length ? 'Расшифровка готова' : 'Речи в видео не нашлось');
   } catch (err) {
     if (!tr.busy) return;
+    tr.autoFail = Date.now() + 60000;
     const kept = !!tr.words.length;
     finishTranscribe(!kept);
     if (kept) saveTranscript(true);
@@ -1639,7 +1665,8 @@ function finishTranscribe(failed) {
   renderAsrRanges();
 }
 
-function cancelTranscribe() {
+function cancelTranscribe({ user = false } = {}) {
+  if (user) tr.noAuto = true;
   if (!tr.busy) return;
   const kept = !!tr.words?.length;
   finishTranscribe(!kept);
@@ -1677,21 +1704,66 @@ function renderTranscript() {
     return;
   }
   const t = player.mode ? player.time() : 0;
-  renderWindow(tr.cur >= 0 ? tr.cur : Math.max(0, wordIndexAt(t) - 1));
+  buildBlocks();
+  keepInPlace(() => renderWindow(tr.cur >= 0 ? tr.cur : Math.max(0, wordIndexAt(t) - 1)));
   const label = { base: 'лёгкая', small: 'быстрая', turbo: 'точная' }[tr.meta?.model] || 'быстрая';
   el.textMeta.textContent = `${tr.words.length} ${plural(tr.words.length, ['слово', 'слова', 'слов'])} · ${label} модель`;
 }
 
+// Абзац заканчивается на конце фразы (не короче 18 слов), на паузе больше 1,2 с или на 60 словах
+function buildBlocks() {
+  const w = tr.words, out = [];
+  let start = 0;
+  for (let i = 0; i < w.length; i++) {
+    const len = i - start + 1, next = w[i + 1];
+    const gap = next ? next.s - w[i].e : Infinity;
+    if (!next || (len >= 18 && /[.!?…]$/.test(w[i].w)) || (len >= 8 && gap > 1.2) || len >= 60) {
+      out.push([start, i + 1]);
+      start = i + 1;
+    }
+  }
+  tr.blocks = out;
+}
+
+function blockOf(i) {
+  const b = tr.blocks;
+  let lo = 0, hi = b.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (b[m][0] <= i) lo = m; else hi = m - 1; }
+  return lo;
+}
+
+// Окно — целые абзацы вокруг слова center, примерно ASR.win слов в каждую сторону
 function renderWindow(center) {
-  const n = tr.words.length;
-  const i0 = clamp(center - ASR.win, 0, Math.max(0, n - 1));
-  const i1 = Math.min(n, i0 + ASR.win * 2);
-  tr.win = [i0, i1];
-  el.words.innerHTML = tr.words.slice(i0, i1).map((w, k) => `<span class="w" data-i="${i0 + k}">${esc(w.w)}</span>`).join(' ');
-  tr.spans = [...el.words.children];
+  const b = tr.blocks;
+  if (!b.length) return;
+  const c = blockOf(clamp(center, 0, tr.words.length - 1));
+  let b0 = c, b1 = c + 1;
+  const count = () => b[b1 - 1][1] - b[b0][0];
+  while (count() < ASR.win * 2 && (b0 > 0 || b1 < b.length)) {
+    if (b0 > 0) b0--;
+    if (b1 < b.length && count() < ASR.win * 2) b1++;
+  }
+  tr.win = [b[b0][0], b[b1 - 1][1]];
+  el.words.innerHTML = b.slice(b0, b1).map(([i0, i1]) =>
+    `<div class="blk">${tr.words.slice(i0, i1).map((w, k) => `<span class="w" data-i="${i0 + k}">${esc(w.w)}</span>`).join(' ')}</div>`).join('');
+  tr.spans = [...el.words.querySelectorAll('.w')];
   tr.cur = -1;
   paintSel();
   paintNoted();
+}
+
+// Перестроили окно — слово, на которое смотрят, остаётся на том же месте, без анимации и скачка
+function keepInPlace(rebuild) {
+  const anchor = tr.cur >= 0 ? tr.cur : Number(tr.spans.find((s) => lineOf(s) === tr.line)?.dataset.i ?? -1);
+  const before = spanOf(anchor) ? lineOf(spanOf(anchor)) : null;
+  const line = tr.line;
+  rebuild();
+  const s = spanOf(anchor);
+  el.words.style.transition = 'none';
+  if (before !== null && s) showLine(line + lineOf(s) - before);
+  else showLine(tr.spans.length ? lineOf(tr.spans[0]) : 0);
+  void el.words.offsetHeight;   // применить сдвиг сразу, до возврата анимации
+  el.words.style.transition = '';
   renderWordNow();
 }
 
@@ -1724,7 +1796,7 @@ function shiftLines(n) {
   if (nearTop || nearEnd) {
     const anchor = tr.spans.find((s) => lineOf(s) === clamp(idx, 0, lastLine()));
     const ai = anchor ? Number(anchor.dataset.i) : tr.win[0];
-    renderWindow(ai);
+    keepInPlace(() => renderWindow(ai));
     idx = lineOf(spanOf(ai) || tr.spans[0]);
   }
   showLine(clamp(idx, 0, lastLine()));
@@ -1736,13 +1808,14 @@ function renderWordNow(t = player.mode ? player.time() : 0) {
     player.pause();
   }
   if (el.captions.hidden !== (!state.project || !player.mode)) { renderTranscript(); return; }
+  if (!el.captions.hidden) autoTranscribe(t);
   if (el.captions.hidden || !tr.spans.length) return;
   let i = wordIndexAt(t + 0.02) - 1;
   if (i >= 0 && t > tr.words[i].e + 0.6) i = -1;
   if (i === tr.cur) return;
   // текущее слово ушло к краю окна — перестраиваем окно вокруг него
   if (i >= 0 && !tr.drag && ((i < tr.win[0] + 30 && tr.win[0] > 0) || (i >= tr.win[1] - 30 && tr.win[1] < tr.words.length))) {
-    renderWindow(i);
+    keepInPlace(() => renderWindow(i));
     return;
   }
   spanOf(tr.cur)?.classList.remove('now');
@@ -3738,7 +3811,7 @@ function bind() {
     renderTranscript();
     if (tr.redo) el.textStart.scrollIntoView({ block: 'nearest' });
   });
-  el.textCancelBtn.addEventListener('click', cancelTranscribe);
+  el.textCancelBtn.addEventListener('click', () => cancelTranscribe({ user: true }));
   el.words.addEventListener('pointerdown', onWordsDown);
   el.words.addEventListener('pointermove', onWordsMove);
   el.words.addEventListener('pointerup', onWordsUp);
