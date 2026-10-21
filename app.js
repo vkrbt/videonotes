@@ -392,6 +392,21 @@ const el = {
   panelTabs: $('#panelTabs'),
   descBadge: $('#descBadge'),
   descPane: $('#descPane'),
+  captions: $('#captions'),
+  capView: $('#capView'),
+  textStart: $('#textStart'),
+  textModel: $('#textModel'),
+  textLang: $('#textLang'),
+  textRunBtn: $('#textRunBtn'),
+  textHint: $('#textHint'),
+  textProgress: $('#textProgress'),
+  textBar: $('#textBar'),
+  textStatus: $('#textStatus'),
+  textCancelBtn: $('#textCancelBtn'),
+  words: $('#words'),
+  textFoot: $('#textFoot'),
+  textMeta: $('#textMeta'),
+  textRedoBtn: $('#textRedoBtn'),
   descText: $('#descText'),
   descSources: $('#descSources'),
   descCount: $('#descCount'),
@@ -829,18 +844,22 @@ const shots = {
   dbPromise: null,
   db() {
     this.dbPromise ??= new Promise((resolve, reject) => {
-      const r = indexedDB.open('videonotes', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('shots');
+      const r = indexedDB.open('videonotes', 2);
+      r.onupgradeneeded = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains('shots')) db.createObjectStore('shots');
+        if (!db.objectStoreNames.contains('transcripts')) db.createObjectStore('transcripts');
+      };
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
     return this.dbPromise;
   },
-  async run(mode, fn) {
+  async run(mode, fn, name = 'shots') {
     const db = await this.db();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('shots', mode);
-      const req = fn(tx.objectStore('shots'));
+      const tx = db.transaction(name, mode);
+      const req = fn(tx.objectStore(name));
       tx.oncomplete = () => resolve(req?.result);
       tx.onerror = () => reject(tx.error);
     });
@@ -1239,12 +1258,12 @@ function openShot(n) {
 function setPanelTab(tab) {
   state.panelTab = tab;
   $$('[data-tab]', el.panelTabs).forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  const desc = tab === 'desc';
-  el.descPane.hidden = !desc;
-  el.notesList.hidden = desc;
-  el.filters.hidden = desc || el.filters.dataset.empty === '1';
-  el.copyAllBtn.hidden = desc;
-  if (desc) renderDesc();
+  const notes = tab === 'notes';
+  el.descPane.hidden = tab !== 'desc';
+  el.notesList.hidden = !notes;
+  el.filters.hidden = !notes || el.filters.dataset.empty === '1';
+  el.copyAllBtn.hidden = !notes;
+  if (tab === 'desc') renderDesc();
 }
 
 function renderDesc() {
@@ -1264,6 +1283,361 @@ function renderDescMeta() {
   el.descCopyBtn.disabled = !len;
 }
 
+/* ---------- текст: расшифровка речи по словам, протягивание по словам → правка к отрезку ---------- */
+
+const tr = {
+  words: null,      // [{ w, s, e }] — слово и его начало/конец в секундах
+  meta: null,
+  spans: [],
+  busy: false,
+  worker: null,
+  prev: null,       // что было до «Расшифровать заново» — вернём, если остановят
+  sel: null,        // { a, b } — индексы слов, выделение всегда целыми словами
+  drag: null,
+  cur: -1,
+  stopAt: null,     // «прослушать выделенное» останавливается на конце отрезка
+  redo: false,      // показать выбор языка и модели над готовым текстом
+  line: null,       // верх текущей строки; null — следуем за воспроизведением
+  manual: false,    // листают колесом — не дёргаем строки, пока не пойдёт следующее слово
+};
+
+async function loadTranscript(p) {
+  if (tr.busy) cancelTranscribe();
+  tr.words = null;
+  tr.meta = null;
+  tr.sel = null;
+  tr.cur = -1;
+  tr.redo = false;
+  renderTranscript();
+  const v = await shots.run('readonly', (st) => st.get(p.key), 'transcripts').catch(() => null);
+  if (state.project !== p || !v?.words?.length) return;
+  tr.words = v.words;
+  tr.meta = v.meta || null;
+  renderTranscript();
+}
+
+function saveTranscript() {
+  const p = state.project;
+  if (!p || !tr.words?.length) return;
+  shots.run('readwrite', (st) => st.put({ words: tr.words, meta: tr.meta }, p.key), 'transcripts')
+    .catch(() => toast('Не удалось сохранить расшифровку в браузере', { kind: 'error' }));
+}
+
+// Файл целиком: сервер Drive отдаёт видео кусками по Range — склеиваем
+async function fetchWhole(url) {
+  const first = await fetch(url);
+  if (!first.ok) throw new Error(String(first.status));
+  if (first.status !== 206) return first.arrayBuffer();
+  const total = Number((first.headers.get('Content-Range') || '').split('/')[1]);
+  const parts = [new Uint8Array(await first.arrayBuffer())];
+  let got = parts[0].length;
+  if (!Number.isFinite(total)) return parts[0].buffer;
+  while (got < total) {
+    const r = await fetch(url, { headers: { Range: `bytes=${got}-` } });
+    if (!r.ok) throw new Error(String(r.status));
+    const chunk = new Uint8Array(await r.arrayBuffer());
+    if (!chunk.length) break;
+    parts.push(chunk);
+    got += chunk.length;
+    setTextProgress(null, `Загружаю видео: ${Math.round((got / total) * 100)}%`);
+  }
+  const all = new Uint8Array(got);
+  let o = 0;
+  for (const c of parts) { all.set(c, o); o += c.length; }
+  return all.buffer;
+}
+
+async function audio16k() {
+  if (player.mode !== 'video') throw new Error('У YouTube-видео браузер не даёт достать звук. Скачай видео и открой его файлом.');
+  let buf;
+  try {
+    buf = await fetchWhole(el.video.currentSrc);
+  } catch {
+    throw new Error('Сайт с видео не отдаёт файл браузеру. Скачай видео и открой его файлом.');
+  }
+  setTextProgress(null, 'Достаю звук из видео…');
+  let decoded;
+  try {
+    decoded = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buf);
+  } catch {
+    throw new Error('Не удалось прочитать звук из этого видео');
+  }
+  const out = new Float32Array(decoded.length);
+  for (let c = 0; c < decoded.numberOfChannels; c++) {
+    const d = decoded.getChannelData(c);
+    for (let i = 0; i < d.length; i++) out[i] += d[i] / decoded.numberOfChannels;
+  }
+  return out;
+}
+
+function setTextProgress(frac, text) {
+  if (frac !== null) el.textBar.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
+  if (text) el.textStatus.textContent = text;
+}
+
+async function transcribe() {
+  const p = state.project;
+  if (!p || tr.busy) return;
+  if (tr.words?.length && !confirm('Расшифровать заново? Текущая расшифровка заменится новой.')) return;
+  tr.prev = tr.words ? { words: tr.words, meta: tr.meta } : null;
+  tr.busy = true;
+  tr.words = [];
+  tr.sel = null;
+  renderTranscript();
+  setTextProgress(0, 'Готовлю звук…');
+  let audio;
+  try {
+    audio = await audio16k();
+  } catch (err) {
+    finishTranscribe(true);
+    toast(err.message, { kind: 'error', timeout: 8000 });
+    return;
+  }
+  if (state.project !== p || !tr.busy) return;
+  const model = el.textModel.value;
+  const language = el.textLang.value || null;
+  const total = audio.length / 16000;
+  const t0 = Date.now();
+  let tRec = 0;
+  tr.worker = new Worker('asr-worker.js', { type: 'module' });
+  tr.worker.onmessage = ({ data: m }) => {
+    if (state.project !== p) { cancelTranscribe(); return; }
+    if (m.type === 'download') {
+      setTextProgress(m.loaded / m.total, `Скачиваю модель: ${Math.round(m.loaded / 1e6)} из ${Math.round(m.total / 1e6)} МБ — один раз`);
+    } else if (m.type === 'ready') {
+      tRec = Date.now();
+      setTextProgress(0, `Распознаю на ${m.device === 'webgpu' ? 'видеокарте' : 'процессоре'}…`);
+    } else if (m.type === 'words') {
+      tr.words.push(...m.words);
+      const spent = (Date.now() - (tRec || t0)) / 1000;
+      const left = m.done < 1 && m.done > 0 ? Math.round((spent / m.done) * (1 - m.done) / 60) : 0;
+      setTextProgress(m.done, `Распознано ${fmt(m.done * total, { ms: false })} из ${fmt(total, { ms: false })}${left ? ` · осталось ~${left} мин` : ''}`);
+      renderTranscript();
+    } else if (m.type === 'done') {
+      tr.meta = { model, language, at: Date.now(), duration: Math.round(total) };
+      finishTranscribe(false);
+      saveTranscript();
+      toast(tr.words.length ? 'Расшифровка готова — протяни по словам, чтобы сделать правку' : 'Речи в видео не нашлось');
+    } else if (m.type === 'error') {
+      finishTranscribe(true);
+      toast('Не получилось расшифровать: ' + m.message, { kind: 'error', timeout: 9000 });
+    }
+  };
+  tr.worker.onerror = () => {
+    finishTranscribe(true);
+    toast('Распознавание не запустилось в этом браузере', { kind: 'error', timeout: 8000 });
+  };
+  tr.worker.postMessage({ type: 'run', audio, model, language }, [audio.buffer]);
+}
+
+function finishTranscribe(failed) {
+  tr.redo = false;
+  tr.worker?.terminate();
+  tr.worker = null;
+  tr.busy = false;
+  if (failed) {
+    tr.words = tr.prev?.words || null;
+    tr.meta = tr.prev?.meta || null;
+  }
+  tr.prev = null;
+  renderTranscript();
+}
+
+function cancelTranscribe() {
+  if (tr.busy) finishTranscribe(true);
+}
+
+function renderTranscript() {
+  const has = !!tr.words?.length;
+  const yt = player.mode === 'yt';
+  el.captions.hidden = !state.project || !player.mode;
+  el.textStart.hidden = tr.busy || (has && !tr.redo);
+  el.textProgress.hidden = !tr.busy;
+  el.capView.hidden = !has;
+  el.textFoot.hidden = !has || tr.busy;
+  el.textRunBtn.disabled = yt;
+  el.textHint.textContent = yt
+    ? 'У YouTube-видео браузер не даёт достать звук — скачай видео и открой его файлом.'
+    : 'В браузере, звук никуда не уходит. Модель скачается один раз.';
+  if (!has) {
+    el.words.innerHTML = '';
+    tr.spans = [];
+    return;
+  }
+  el.words.innerHTML = tr.words.map((w, i) => `<span class="w" data-i="${i}">${esc(w.w)}</span>`).join(' ');
+  tr.spans = [...el.words.querySelectorAll('.w')];
+  tr.cur = -1;
+  tr.line = null;
+  paintSel();
+  paintNoted();
+  renderWordNow();
+  const label = tr.meta?.model === 'turbo' ? 'точная модель' : 'быстрая модель';
+  el.textMeta.textContent = `${tr.words.length} ${plural(tr.words.length, ['слово', 'слова', 'слов'])} · ${label} · клик — перемотать, протяни — заметка`;
+}
+
+// Три строки: предыдущая, текущая, следующая. Сдвигаем поток так, чтобы строка слова встала в середину
+function lineH() {
+  return parseFloat(getComputedStyle(el.words).lineHeight) || 28;
+}
+function showLine(top) {
+  const lh = lineH();
+  const max = Math.max(0, el.words.scrollHeight - lh * 3);
+  tr.line = clamp(top - lh, 0, max);
+  el.words.style.transform = `translateY(${-tr.line}px)`;
+}
+function shiftLines(n) {
+  tr.manual = true;
+  showLine((tr.line ?? 0) + lineH() + n * lineH());
+}
+
+function renderWordNow(t = player.mode ? player.time() : 0) {
+  if (tr.stopAt !== null && t >= tr.stopAt) {
+    tr.stopAt = null;
+    player.pause();
+  }
+  if (el.captions.hidden !== (!state.project || !player.mode)) { renderTranscript(); return; }
+  if (el.captions.hidden || !tr.spans.length) return;
+  const w = tr.words;
+  let lo = 0, hi = w.length - 1, i = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (w[m].s <= t + 0.02) { i = m; lo = m + 1; } else hi = m - 1;
+  }
+  if (i >= 0 && t > w[i].e + 0.6) i = -1;
+  if (i === tr.cur) {
+    if (tr.line === null && i >= 0) showLine(tr.spans[i].offsetTop);
+    return;
+  }
+  tr.spans[tr.cur]?.classList.remove('now');
+  tr.cur = i;
+  const span = tr.spans[i];
+  if (!span) return;
+  span.classList.add('now');
+  if (tr.drag) return;
+  if (tr.manual && player.paused()) return;
+  tr.manual = false;
+  showLine(span.offsetTop);
+}
+
+function selRange() {
+  return tr.sel ? [Math.min(tr.sel.a, tr.sel.b), Math.max(tr.sel.a, tr.sel.b)] : null;
+}
+
+function paintSel() {
+  const r = selRange();
+  tr.spans.forEach((s, i) => s.classList.toggle('sel', !!r && i >= r[0] && i <= r[1]));
+}
+
+function paintNoted() {
+  const p = state.project;
+  if (!p || !tr.spans.length) return;
+  const ranges = p.notes.filter((n) => n.end !== null && n.end !== undefined).map((n) => [Math.min(n.seconds, n.end), Math.max(n.seconds, n.end)]);
+  tr.words.forEach((w, i) => {
+    const mid = (w.s + w.e) / 2;
+    tr.spans[i]?.classList.toggle('noted', ranges.some(([a, b]) => mid >= a && mid <= b));
+  });
+}
+
+function clearWordSel() {
+  tr.sel = null;
+  paintSel();
+}
+
+function wordFromPoint(x, y) {
+  const node = document.elementFromPoint(x, y)?.closest?.('.w');
+  return node && el.words.contains(node) ? Number(node.dataset.i) : null;
+}
+
+// Ближайшее слово, если курсор ушёл в пробел между словами или за край строки
+function nearestWord(x, y) {
+  const direct = wordFromPoint(x, y);
+  if (direct !== null) return direct;
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < tr.spans.length; i++) {
+    const r = tr.spans[i].getBoundingClientRect();
+    if (r.bottom < y - 40 || r.top > y + 40) continue;
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    const d = dy * 4 + dx;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+function onWordsDown(e) {
+  if (e.button !== 0) return;
+  const i = wordFromPoint(e.clientX, e.clientY);
+  if (i === null) { if (tr.sel) clearWordSel(); return; }
+  e.preventDefault();
+  if (e.shiftKey && tr.sel) {
+    tr.sel.b = i;
+    paintSel();
+    noteFromWords();
+    return;
+  }
+  tr.drag = { start: i, moved: false, id: e.pointerId };
+  tr.sel = { a: i, b: i };
+  el.words.setPointerCapture(e.pointerId);
+  el.captions.classList.add('dragging');
+  paintSel();
+}
+
+function onWordsMove(e) {
+  if (!tr.drag || e.pointerId !== tr.drag.id) return;
+  const i = nearestWord(e.clientX, e.clientY);
+  if (i !== null && i !== tr.sel.b) {
+    tr.sel.b = i;
+    tr.drag.moved = true;
+    paintSel();
+  }
+  // протянули за верх или низ окна в три строки — листаем строки
+  const box = el.capView.getBoundingClientRect();
+  const now = Date.now();
+  if (now - (tr.drag.scrolled || 0) > 220) {
+    if (e.clientY > box.bottom) { shiftLines(1); tr.drag.scrolled = now; }
+    else if (e.clientY < box.top) { shiftLines(-1); tr.drag.scrolled = now; }
+  }
+}
+
+function onWordsUp(e) {
+  if (!tr.drag || e.pointerId !== tr.drag.id) return;
+  const { start, moved } = tr.drag;
+  tr.drag = null;
+  el.captions.classList.remove('dragging');
+  if (!moved) {
+    // просто клик по слову — перематываем к нему
+    tr.sel = null;
+    paintSel();
+    tr.manual = false;
+    player.seek(tr.words[start].s);
+    return;
+  }
+  // протянули — выделенные слова сразу в заметку, с отрезком по их таймкодам
+  noteFromWords();
+}
+
+function noteFromWords() {
+  const r = selRange();
+  if (!r || !state.project) return;
+  const s = tr.words[r[0]].s;
+  const e = Math.max(tr.words[r[1]].e, s + 0.1);
+  const quote = tr.words.slice(r[0], r[1] + 1).map((w) => w.w).join(' ');
+  tr.stopAt = null;
+  player.pause();
+  player.seek(s, { follow: false });
+  state.markIn = s;
+  state.markOut = e;
+  state.pending = s;
+  const cur = el.noteInput.value.trim();
+  el.noteInput.value = cur ? `${cur}\n«${quote}» — ` : `«${quote}» — `;
+  autosize(el.noteInput);
+  clearWordSel();
+  renderSelection();
+  renderComposer();
+  focusNote();
+  el.noteInput.setSelectionRange(el.noteInput.value.length, el.noteInput.value.length);
+}
+
 function startProject(p) {
   state.project = p;
   state.dur = p.duration || 0;
@@ -1280,6 +1654,7 @@ function startProject(p) {
   setPanelTab('notes');
   renderDescMeta();
   preloadShots(p);
+  loadTranscript(p);
   history.replaceState(null, '', location.pathname + location.search);
 }
 
@@ -1665,7 +2040,7 @@ function renderFilters() {
   notes.forEach((n) => counts.set(n.type, (counts.get(n.type) || 0) + 1));
   if (state.filter !== 'all' && !counts.has(state.filter)) state.filter = 'all';
   el.filters.dataset.empty = counts.size < 2 ? '1' : '';
-  el.filters.hidden = counts.size < 2 || state.panelTab === 'desc';
+  el.filters.hidden = counts.size < 2 || state.panelTab !== 'notes';
   el.filters.innerHTML =
     `<button class="type-chip all ${state.filter === 'all' ? 'on' : ''}" data-filter="all" style="--c:var(--accent-text)">Все <span class="num">${notes.length}</span></button>` +
     [...counts].map(([t, c]) => `
@@ -1700,6 +2075,7 @@ function noteHTML(n) {
 }
 
 function renderNotes({ flash } = {}) {
+  if (tr.spans.length) queueMicrotask(paintNoted);
   const p = state.project;
   const all = p?.notes || [];
   const done = all.filter((n) => n.done).length;
@@ -1833,6 +2209,7 @@ function tick() {
   el.tlNow.style.left = pct + '%';
   el.clock.textContent = `${fmt(t)} / ${fmt(state.dur)}`;
   renderSelection(t);
+  renderWordNow(t);
   el.player.classList.toggle('playing', !player.paused());
   el.player.classList.toggle('muted', player.muted());
   renderComposer(t);
@@ -3092,6 +3469,41 @@ function bind() {
     const b = e.target.closest('[data-tab]');
     if (b) setPanelTab(b.dataset.tab);
   });
+  // Текст: расшифровка и выделение слов протягиванием
+  el.textRunBtn.addEventListener('click', transcribe);
+  // Язык и модель запоминаем: в следующий раз сразу «Расшифровать»
+  el.textModel.value = localStorage.getItem('vn.asrModel') || 'small';
+  el.textLang.value = localStorage.getItem('vn.asrLang') ?? '';
+  el.textModel.addEventListener('change', () => localStorage.setItem('vn.asrModel', el.textModel.value));
+  el.textLang.addEventListener('change', () => localStorage.setItem('vn.asrLang', el.textLang.value));
+  el.textRedoBtn.addEventListener('click', () => {
+    tr.redo = !tr.redo;
+    renderTranscript();
+    if (tr.redo) el.textStart.scrollIntoView({ block: 'nearest' });
+  });
+  el.textCancelBtn.addEventListener('click', cancelTranscribe);
+  el.words.addEventListener('pointerdown', onWordsDown);
+  el.words.addEventListener('pointermove', onWordsMove);
+  el.words.addEventListener('pointerup', onWordsUp);
+  el.words.addEventListener('pointercancel', onWordsUp);
+  el.capView.addEventListener('wheel', (e) => {
+    if (!tr.spans.length) return;
+    e.preventDefault();
+    shiftLines(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+  new ResizeObserver(() => { if (tr.cur >= 0) showLine(tr.spans[tr.cur].offsetTop); }).observe(el.capView);
+  // Видео ужимается на высоту текста — три строки всегда видны без прокрутки
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--cap-h', el.captions.hidden ? '0px' : `${el.captions.offsetHeight + 8}px`);
+  }).observe(el.captions);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tr.drag) {
+      tr.drag = null;
+      el.captions.classList.remove('dragging');
+      clearWordSel();
+      e.stopImmediatePropagation();
+    }
+  }, true);
   el.descText.addEventListener('input', () => {
     state.project.desc = el.descText.value;
     renderDescMeta();
