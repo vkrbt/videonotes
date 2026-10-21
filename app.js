@@ -1301,6 +1301,8 @@ const ASR = {
   fastBytes: 50e6,          // короткий ролик декодируем целиком встроенным декодером…
   fastSec: 300,             // …но только если он и маленький, и короткий
   urlBytes: 200e6,          // видео по ссылке держим в памяти — не больше этого
+  ffmpegBytes: 2e9,         // ffmpeg — только для редких форматов и файлов меньше этого
+  recycleEvery: 8,          // через сколько кусков перезапускать воркер распознавания
   win: 240,                 // слов в DOM по каждую сторону от текущего
   saveEvery: 15000,         // расшифровку пишем в браузер не чаще раза в 15 с
 };
@@ -1325,6 +1327,7 @@ const tr = {
   line: 0,
   manual: false,    // листают колесом — не дёргаем строки, пока не пойдёт следующее слово
   saveTimer: null,
+  partsInWorker: 0,
   quoted: null,     // цитата, которую подставили в правку последней — её заменит новое выделение
   noAuto: false,    // нажали «Остановить» — сами не продолжаем, пока не нажмут «Продолжить»
   autoAt: 0,        // когда последний раз проверяли, нужен ли текст впереди
@@ -1466,6 +1469,18 @@ async function audioSource(dur) {
       // встроенный декодер не понял формат — ffmpeg справится
     }
   }
+  // MP4/MOV любого размера: читаем только индекс и байты нужного куска — без ffmpeg и без лишней памяти
+  try {
+    const { mp4Source } = await import('./mp4audio.js');
+    return await mp4Source(blob);
+  } catch (err) {
+    if (err?.name === 'NotReadableError' || err?.name === 'NotFoundError') throw fileReadError(err);
+    // не MP4/MOV или звук в редком кодеке — дальше ffmpeg
+  }
+  // ffmpeg.wasm 32-битный: на больших файлах его индекс не влезает в память и роняет вкладку
+  if (blob.size > ASR.ffmpegBytes) {
+    throw new Error('Этот формат видео в браузере расшифровывается только до 2 ГБ. Сохрани видео как MP4 или MOV — их можно любого размера.');
+  }
   try {
     return await ffmpegSource(blob);
   } catch (err) {
@@ -1567,7 +1582,7 @@ async function transcribe({ auto = false } = {}) {
   tr.prev = tr.words ? { words: tr.words, meta: tr.meta, done: tr.done } : null;
   if (!resume) { tr.words = []; tr.done = []; }
   tr.meta = { model, language, partial: true, at: Date.now(), duration: Math.round(dur) };
-  Object.assign(tr, { busy: true, redo: false, sel: null });
+  Object.assign(tr, { busy: true, redo: false, sel: null, partsInWorker: 0 });
   renderTranscript();
   renderAsrRanges();
   el.textBar.hidden = true;
@@ -1582,8 +1597,15 @@ async function transcribe({ auto = false } = {}) {
   }
   if (state.project !== p || !tr.busy) return;
 
-  tr.worker = new Worker('asr-worker.js', { type: 'module' });
-  tr.worker.onmessage = ({ data: m }) => {
+  // Декодер работает на процессоре (см. asr-worker.js), а воркер всё равно перезапускается раз в
+  // ASR.recycleEvery кусков: так любая память распознавания гарантированно возвращается.
+  const newWorker = () => {
+    const w = new Worker('asr-worker.js', { type: 'module' });
+    w.onmessage = onWorker;
+    w.onerror = () => tr.pending?.reject(new Error('Распознавание не запустилось в этом браузере'));
+    return w;
+  };
+  const onWorker = ({ data: m }) => {
     if (m.type === 'download') {
       // только полоса: меняющиеся цифры дёргали плашку
       el.textBar.hidden = false;
@@ -1600,7 +1622,6 @@ async function transcribe({ auto = false } = {}) {
       tr.pending?.reject(new Error(m.message));
     }
   };
-  tr.worker.onerror = () => tr.pending?.reject(new Error('Распознавание не запустилось в этом браузере'));
 
   const parts = [];
   for (let a = 0; a < dur; a += ASR.part) {
@@ -1618,8 +1639,11 @@ async function transcribe({ auto = false } = {}) {
       let audio;
       try { audio = await tr.src.part(from, to); } catch (err) { throw fileReadError(err); }
       if (!tr.busy) return;
+      tr.worker ??= newWorker();
       const words = await askWorker({ type: 'part', id: next.a, audio, start: from, a: next.a, b: next.b, model, language }, [audio.buffer]);
       audio = null;
+      // страховка: раз в несколько кусков воркер перезапускается и отдаёт всю свою память
+      if (++tr.partsInWorker >= ASR.recycleEvery) { tr.worker?.terminate(); tr.worker = null; tr.partsInWorker = 0; }
       if (!tr.busy || state.project !== p) return;
       next.done = true;
       mergeWords(words, next.a, next.b);

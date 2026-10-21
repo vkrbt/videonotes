@@ -36,9 +36,16 @@ async function detect() {
 
 // Самые лёгкие сборки, которые держат качество: в памяти модель — главный расход
 function dtypeFor(model, d) {
-  if (d.device === 'webgpu' && d.f16) return { encoder_model: model === 'turbo' ? 'q4f16' : 'fp16', decoder_model_merged: 'q4f16' };
-  if (d.device === 'webgpu') return { encoder_model: 'q4', decoder_model_merged: 'q4' };
+  if (d.device === 'webgpu' && d.f16) return { encoder_model: model === 'turbo' ? 'q4f16' : 'fp16', decoder_model_merged: 'q8' };
+  if (d.device === 'webgpu') return { encoder_model: 'q4', decoder_model_merged: 'q8' };
   return { encoder_model: 'q8', decoder_model_merged: 'q8' };
+}
+
+// Энкодер (тяжёлая часть) — на видеокарте, декодер — на процессоре. Декодер с таймингами слов
+// оставлял на видеокарте тензоры внимания и не освобождал их (≈1 ГБ на кусок); на процессоре
+// они живут в памяти воркера, которая ограничена и освобождается его перезапуском.
+function devicesFor(d) {
+  return d.device === 'webgpu' ? { encoder_model: 'webgpu', decoder_model_merged: 'wasm' } : 'wasm';
 }
 
 async function load(model) {
@@ -50,7 +57,7 @@ async function load(model) {
   const dtype = dtypeFor(model, d);
   const files = new Map();
   asr = await pipeline('automatic-speech-recognition', MODELS[model] || MODELS.small, {
-    device: d.device,
+    device: devicesFor(d),
     dtype,
     progress_callback: (p) => {
       if (p.status !== 'progress' || !p.total) return;
