@@ -181,8 +181,9 @@
           <div class="cap-start" id="textStart">
             <span class="cap-title">Текст речи</span>
             <select class="field field-sm" id="textModel" aria-label="Модель распознавания">
-              <option value="small">Быстро · ~250 МБ</option>
-              <option value="turbo">Точнее · ~750 МБ</option>
+              <option value="base">Лёгкая · ~100 МБ</option>
+              <option value="small">Обычная · ~300 МБ</option>
+              <option value="turbo">Точнее · ~560 МБ, нужна видеокарта</option>
             </select>
             <select class="field field-sm" id="textLang" aria-label="Язык речи">
               <option value="russian">Русский</option>
@@ -202,7 +203,7 @@
             <span class="muted small" id="textStatus"></span>
             <button class="link-btn" id="textCancelBtn">Остановить</button>
           </div>
-          <div class="cap-view" id="capView" hidden title="Клик по слову — перемотать. Протяни по словам — заметка к этому отрезку">
+          <div class="cap-view" id="capView" hidden>
             <div class="words" id="words"></div>
           </div>
           <div class="cap-foot" id="textFoot" hidden>
