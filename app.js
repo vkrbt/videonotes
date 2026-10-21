@@ -438,6 +438,8 @@ const el = {
   restoreInput: $('#restoreInput'),
 
   importDialog: $('#importDialog'),
+  importBtn: $('#importBtn'),
+  importInput: $('#importInput'),
   importText: $('#importText'),
   importConfirmBtn: $('#importConfirmBtn'),
   hotkeysDialog: $('#hotkeysDialog'),
@@ -1356,31 +1358,81 @@ async function fetchWhole(url) {
   return all.buffer;
 }
 
-async function audio16k() {
-  if (player.mode !== 'video') throw new Error('У YouTube-видео браузер не даёт достать звук. Скачай видео и открой его файлом.');
-  let buf;
-  if (state.file) {
-    buf = await state.file.arrayBuffer();
-  } else {
-    try {
-      buf = await fetchWhole(el.video.currentSrc);
-    } catch {
-      throw new Error('По этой ссылке браузеру не дают скачать файл целиком, а без него звук не достать. Скачай видео и открой его как файл.');
-    }
-  }
-  setTextProgress(null, 'Достаю звук из видео…');
-  let decoded;
+const FFCORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core';
+
+// Большой или «трудный» файл: ffmpeg в браузере читает его кусочками (WORKERFS), целиком в память не грузит
+async function audioViaFfmpeg(file) {
+  setTextProgress(null, 'Готовлю ffmpeg для звука из большого файла…');
+  const { FFmpeg } = await import('./vendor/ffmpeg/index.js');
+  const ff = new FFmpeg();
+  ff.on('progress', ({ progress }) => {
+    if (progress > 0 && progress <= 1) setTextProgress(null, `Достаю звук из видео: ${Math.round(progress * 100)}%`);
+  });
   try {
-    decoded = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buf);
-  } catch {
-    throw new Error('Не удалось прочитать звук из этого видео');
+    await ff.load({ coreURL: FFCORE + '.js', wasmURL: FFCORE + '.wasm' });
+    await ff.createDir('/in');
+    await ff.mount('WORKERFS', { files: [file] }, '/in');
+    const code = await ff.exec(['-nostdin', '-i', `/in/${file.name}`, '-vn', '-ac', '1', '-ar', '16000', '-f', 's16le', '/out.pcm']);
+    if (code !== 0) throw new Error('ffmpeg ' + code);
+    const raw = await ff.readFile('/out.pcm');
+    const pcm = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength >> 1);
+    const out = new Float32Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
+    return out;
+  } finally {
+    ff.terminate();
   }
+}
+
+function fileReadError(err) {
+  return err?.name === 'NotReadableError' || err?.name === 'NotFoundError'
+    ? new Error('Браузер потерял доступ к файлу — его переместили, переименовали или он ещё синхронизируется (iCloud/Drive). Открой файл заново через «Другое видео».')
+    : new Error('Не удалось прочитать звук из этого файла');
+}
+
+async function decode16k(buf) {
+  const decoded = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(buf);
   const out = new Float32Array(decoded.length);
   for (let c = 0; c < decoded.numberOfChannels; c++) {
     const d = decoded.getChannelData(c);
     for (let i = 0; i < d.length; i++) out[i] += d[i] / decoded.numberOfChannels;
   }
   return out;
+}
+
+async function audio16k() {
+  if (player.mode !== 'video') throw new Error('У YouTube-видео браузер не даёт достать звук. Скачай видео и открой его файлом.');
+  const file = state.file;
+  if (file) {
+    // До ~1,5 ГБ быстрее встроенный декодер; больше Chrome не прочитает одним куском — сразу ffmpeg
+    if (file.size < 1.5e9) {
+      try {
+        const buf = await file.arrayBuffer();
+        setTextProgress(null, 'Достаю звук из видео…');
+        return await decode16k(buf);
+      } catch (err) {
+        if (err?.name === 'NotFoundError') throw fileReadError(err);
+        // формат не понял встроенный декодер или не хватило памяти — пробуем ffmpeg
+      }
+    }
+    try {
+      return await audioViaFfmpeg(file);
+    } catch (err) {
+      throw fileReadError(err);
+    }
+  }
+  let buf;
+  try {
+    buf = await fetchWhole(el.video.currentSrc);
+  } catch {
+    throw new Error('По этой ссылке браузеру не дают скачать файл целиком, а без него звук не достать. Скачай видео и открой его как файл.');
+  }
+  setTextProgress(null, 'Достаю звук из видео…');
+  try {
+    return await decode16k(buf);
+  } catch {
+    throw new Error('Не удалось прочитать звук из этого видео');
+  }
 }
 
 function setTextProgress(frac, text) {
@@ -3153,6 +3205,15 @@ function bind() {
     if (isPackageFile(f)) importPackage(f);
     else if (f) openFile(f);
   });
+  // Импорт правок: архив .zip или notes.json из выгрузки Video Notes
+  el.importBtn.addEventListener('click', () => el.importInput.click());
+  el.importInput.addEventListener('change', () => {
+    const f = el.importInput.files[0];
+    el.importInput.value = '';
+    if (!f) return;
+    if (isPackageFile(f)) importPackage(f);
+    else toast('Нужен архив .zip или notes.json, выгруженный из Video Notes', { kind: 'error' });
+  });
   el.backToVideoBtn.addEventListener('click', () => { state.attachKey = null; showWorkspace(); renderSource(); });
   el.changeSourceBtn.addEventListener('click', () => showStart());
 
@@ -3536,9 +3597,10 @@ function bind() {
   el.textRunBtn.addEventListener('click', transcribe);
   // Язык и модель запоминаем: в следующий раз сразу «Расшифровать»
   el.textModel.value = localStorage.getItem('vn.asrModel') || 'small';
-  el.textLang.value = localStorage.getItem('vn.asrLang') ?? '';
+  // По умолчанию русский: автоопределение языка в браузерном Whisper часто уходит в английский
+  el.textLang.value = localStorage.getItem('vn.asrLang2') ?? 'russian';
   el.textModel.addEventListener('change', () => localStorage.setItem('vn.asrModel', el.textModel.value));
-  el.textLang.addEventListener('change', () => localStorage.setItem('vn.asrLang', el.textLang.value));
+  el.textLang.addEventListener('change', () => localStorage.setItem('vn.asrLang2', el.textLang.value));
   el.textRedoBtn.addEventListener('click', () => {
     tr.redo = !tr.redo;
     renderTranscript();
