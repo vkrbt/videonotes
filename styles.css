@@ -1608,18 +1608,16 @@ main {
 }
 
 /* ---------- текст речи под видео: три строки, слова с таймингами ---------- */
-.captions { position: relative; margin-top: 8px; padding: 6px 12px; }
+/* высота постоянная — три строки: запуск, прогресс и текст сменяют друг друга без сдвига страницы */
+.captions { --cap-lh: 25px; position: relative; box-sizing: border-box; height: calc(var(--cap-lh) * 3 + 14px); margin-top: 8px; padding: 7px 12px; overflow: hidden; }
 .captions[hidden] { display: none; }
-.cap-start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cap-start { position: absolute; inset: 7px 12px; display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 6px 8px; }
 .cap-title { font-weight: 600; font-size: 14px; margin-right: 4px; }
 .cap-start .field-sm { width: auto; font-family: inherit; }
 .cap-hint { flex: 1 1 200px; }
-.cap-progress { display: grid; gap: 8px; }
-.cap-progress .link-btn { justify-self: start; }
 .text-bar { height: 6px; border-radius: 99px; background: var(--bg-3); overflow: hidden; }
 .text-bar i { display: block; height: 100%; width: 0; background: var(--accent-text); transition: width 0.3s; }
 .cap-view {
-  --cap-lh: 25px;
   height: calc(var(--cap-lh) * 3);
   overflow: hidden;
   /* предыдущая и следующая строки приглушены, текущая — в середине */
@@ -1649,3 +1647,18 @@ main {
 .cap-foot .link-btn { font-size: 12px; opacity: 0.6; }
 .cap-foot .link-btn:hover { opacity: 1; }
 .cap-view { margin-right: 22px; }
+
+/* расшифрованные куски — как подгрузка на полосе видео */
+.tl-asr { position: absolute; inset: 0; pointer-events: none; }
+.tl-asr i { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: var(--accent-text); opacity: 0.35; }
+.cap-progress {
+  position: absolute; right: 8px; bottom: 6px; z-index: 2;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 16px);
+  padding: 3px 4px 3px 10px; border: 1px solid var(--line-soft); border-radius: 999px;
+  background: var(--bg-2); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); font-size: 12px;
+}
+.cap-progress[hidden] { display: none; }
+.cap-progress #textStatus { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cap-progress .text-bar { flex: 0 0 90px; height: 4px; }
+.cap-progress .link-btn { font-size: 12px; white-space: nowrap; }
+.cap-progress .text-bar[hidden] { display: none; }

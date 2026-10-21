@@ -401,6 +401,7 @@ const el = {
   textHint: $('#textHint'),
   textProgress: $('#textProgress'),
   textBar: $('#textBar'),
+  tlAsr: $('#tlAsr'),
   textStatus: $('#textStatus'),
   textCancelBtn: $('#textCancelBtn'),
   words: $('#words'),
@@ -549,6 +550,7 @@ const player = {
     if (this.mode === 'yt') this.ytReady && this.yt.seekTo(t, true);
     else if (this.mode === 'video') el.video.currentTime = t;
     if (follow) followComposer(t);
+    asrFocus(t);
     tick();
   },
   muted() {
@@ -689,12 +691,14 @@ function openFile(file) {
   project.title = file.name;
   project.meta = { ...project.meta, size: file.size, modified: file.lastModified, mime: file.type || undefined };
   player.stop();
+  state.file = file;        // для расшифровки звук читаем прямо из файла
   state.objectUrl = URL.createObjectURL(file);
   startProject(project);
   mountVideo(state.objectUrl);
 }
 
 function openSource(src) {
+  state.file = null;
   if (!src) {
     toast('Не похоже на ссылку', { kind: 'error' });
     return false;
@@ -1299,6 +1303,7 @@ const tr = {
   redo: false,      // показать выбор языка и модели над готовым текстом
   line: null,       // верх текущей строки; null — следуем за воспроизведением
   manual: false,    // листают колесом — не дёргаем строки, пока не пойдёт следующее слово
+  done: [],         // [[от, до]] — какие секунды уже расшифрованы
 };
 
 async function loadTranscript(p) {
@@ -1308,18 +1313,22 @@ async function loadTranscript(p) {
   tr.sel = null;
   tr.cur = -1;
   tr.redo = false;
+  tr.done = [];
   renderTranscript();
+  renderAsrRanges();
   const v = await shots.run('readonly', (st) => st.get(p.key), 'transcripts').catch(() => null);
   if (state.project !== p || !v?.words?.length) return;
   tr.words = v.words;
   tr.meta = v.meta || null;
+  tr.done = v.done || [[0, v.meta?.duration || v.words.at(-1).e]];
   renderTranscript();
+  renderAsrRanges();
 }
 
 function saveTranscript() {
   const p = state.project;
   if (!p || !tr.words?.length) return;
-  shots.run('readwrite', (st) => st.put({ words: tr.words, meta: tr.meta }, p.key), 'transcripts')
+  shots.run('readwrite', (st) => st.put({ words: tr.words, meta: tr.meta, done: tr.done }, p.key), 'transcripts')
     .catch(() => toast('Не удалось сохранить расшифровку в браузере', { kind: 'error' }));
 }
 
@@ -1350,10 +1359,14 @@ async function fetchWhole(url) {
 async function audio16k() {
   if (player.mode !== 'video') throw new Error('У YouTube-видео браузер не даёт достать звук. Скачай видео и открой его файлом.');
   let buf;
-  try {
-    buf = await fetchWhole(el.video.currentSrc);
-  } catch {
-    throw new Error('Сайт с видео не отдаёт файл браузеру. Скачай видео и открой его файлом.');
+  if (state.file) {
+    buf = await state.file.arrayBuffer();
+  } else {
+    try {
+      buf = await fetchWhole(el.video.currentSrc);
+    } catch {
+      throw new Error('По этой ссылке браузеру не дают скачать файл целиком, а без него звук не достать. Скачай видео и открой его как файл.');
+    }
   }
   setTextProgress(null, 'Достаю звук из видео…');
   let decoded;
@@ -1375,90 +1388,139 @@ function setTextProgress(frac, text) {
   if (text) el.textStatus.textContent = text;
 }
 
+function mergeRanges(list) {
+  const out = [];
+  for (const [a, b] of [...list].sort((x, y) => x[0] - y[0])) {
+    const last = out.at(-1);
+    if (last && a <= last[1] + 0.5) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+function renderAsrRanges() {
+  const d = state.dur;
+  el.tlAsr.innerHTML = d ? tr.done.map(([a, b]) => `<i style="left:${(a / d) * 100}%;width:${Math.max(0.3, ((b - a) / d) * 100)}%"></i>`).join('') : '';
+}
+
+// Перемотали во время распознавания — следующим берём кусок у нового места
+function asrFocus(t) {
+  if (tr.busy && tr.worker) tr.worker.postMessage({ type: 'focus', t });
+}
+
+function transcribePartial() {
+  return !!(tr.words?.length && tr.meta?.partial);
+}
+
 async function transcribe() {
   const p = state.project;
   if (!p || tr.busy) return;
-  if (tr.words?.length && !confirm('Расшифровать заново? Текущая расшифровка заменится новой.')) return;
-  tr.prev = tr.words ? { words: tr.words, meta: tr.meta } : null;
+  const model = el.textModel.value;
+  const language = el.textLang.value || null;
+  // Остановленную расшифровку продолжаем с теми же языком и моделью, иначе начинаем заново
+  const resume = transcribePartial() && !tr.redo && tr.meta.model === model && (tr.meta.language || null) === language;
+  if (!resume && tr.words?.length && !confirm('Расшифровать заново? Текущая расшифровка заменится новой.')) return;
+  tr.prev = tr.words ? { words: tr.words, meta: tr.meta, done: tr.done } : null;
+  if (!resume) { tr.words = []; tr.done = []; }
+  tr.meta = { model, language, partial: true, at: Date.now() };
   tr.busy = true;
-  tr.words = [];
+  tr.redo = false;
   tr.sel = null;
   renderTranscript();
+  renderAsrRanges();
+  el.textBar.hidden = true;
   setTextProgress(0, 'Готовлю звук…');
   let audio;
   try {
     audio = await audio16k();
   } catch (err) {
     finishTranscribe(true);
-    toast(err.message, { kind: 'error', timeout: 8000 });
+    toast(err.message, { kind: 'error', timeout: 9000 });
     return;
   }
   if (state.project !== p || !tr.busy) return;
-  const model = el.textModel.value;
-  const language = el.textLang.value || null;
   const total = audio.length / 16000;
-  const t0 = Date.now();
-  let tRec = 0;
+  tr.meta.duration = Math.round(total);
+  let tRec = 0, doneAtStart = 0;
   tr.worker = new Worker('asr-worker.js', { type: 'module' });
   tr.worker.onmessage = ({ data: m }) => {
     if (state.project !== p) { cancelTranscribe(); return; }
     if (m.type === 'download') {
+      el.textBar.hidden = false;
       setTextProgress(m.loaded / m.total, `Скачиваю модель: ${Math.round(m.loaded / 1e6)} из ${Math.round(m.total / 1e6)} МБ — один раз`);
     } else if (m.type === 'ready') {
+      el.textBar.hidden = true;
       tRec = Date.now();
-      setTextProgress(0, `Распознаю на ${m.device === 'webgpu' ? 'видеокарте' : 'процессоре'}…`);
+      doneAtStart = tr.done.reduce((s, [a, b]) => s + b - a, 0) / total;
+      setTextProgress(null, `Распознаю с ${fmt(player.time(), { ms: false })}${m.device ? ` на ${m.device === 'webgpu' ? 'видеокарте' : 'процессоре'}` : ''}…`);
     } else if (m.type === 'words') {
-      tr.words.push(...m.words);
-      const spent = (Date.now() - (tRec || t0)) / 1000;
-      const left = m.done < 1 && m.done > 0 ? Math.round((spent / m.done) * (1 - m.done) / 60) : 0;
-      setTextProgress(m.done, `Распознано ${fmt(m.done * total, { ms: false })} из ${fmt(total, { ms: false })}${left ? ` · осталось ~${left} мин` : ''}`);
+      const [a, b] = m.range;
+      tr.words = [...tr.words.filter((w) => w.s < a || w.s >= b), ...m.words].sort((x, y) => x.s - y.s);
+      tr.done = mergeRanges([...tr.done, [a, b]]);
+      const spent = (Date.now() - tRec) / 1000;
+      const gained = m.done - doneAtStart;
+      const left = gained > 0 && m.done < 1 ? Math.round((spent / gained) * (1 - m.done) / 60) : 0;
+      setTextProgress(null, `Расшифровано ${Math.round(m.done * 100)}%${left ? ` · осталось ~${left} мин` : ''} — готовые куски видно на полосе видео`);
       renderTranscript();
+      renderAsrRanges();
+      saveTranscript();
     } else if (m.type === 'done') {
-      tr.meta = { model, language, at: Date.now(), duration: Math.round(total) };
+      tr.meta.partial = false;
+      tr.meta.at = Date.now();
       finishTranscribe(false);
       saveTranscript();
-      toast(tr.words.length ? 'Расшифровка готова — протяни по словам, чтобы сделать правку' : 'Речи в видео не нашлось');
+      toast(tr.words.length ? 'Расшифровка готова' : 'Речи в видео не нашлось');
     } else if (m.type === 'error') {
-      finishTranscribe(true);
+      finishTranscribe(!tr.words.length);
       toast('Не получилось расшифровать: ' + m.message, { kind: 'error', timeout: 9000 });
     }
   };
   tr.worker.onerror = () => {
-    finishTranscribe(true);
+    finishTranscribe(!tr.words.length);
     toast('Распознавание не запустилось в этом браузере', { kind: 'error', timeout: 8000 });
   };
-  tr.worker.postMessage({ type: 'run', audio, model, language }, [audio.buffer]);
+  tr.worker.postMessage({ type: 'run', audio, model, language, from: player.time(), skip: tr.done }, [audio.buffer]);
 }
 
+// failed — ничего не получилось: возвращаем прежнюю расшифровку. Иначе оставляем, что успели
 function finishTranscribe(failed) {
-  tr.redo = false;
   tr.worker?.terminate();
   tr.worker = null;
   tr.busy = false;
   if (failed) {
     tr.words = tr.prev?.words || null;
     tr.meta = tr.prev?.meta || null;
+    tr.done = tr.prev?.done || [];
   }
   tr.prev = null;
   renderTranscript();
+  renderAsrRanges();
 }
 
 function cancelTranscribe() {
-  if (tr.busy) finishTranscribe(true);
+  if (!tr.busy) return;
+  const kept = !!tr.words?.length;
+  finishTranscribe(!kept);
+  if (kept) saveTranscript();
 }
 
 function renderTranscript() {
   const has = !!tr.words?.length;
   const yt = player.mode === 'yt';
   el.captions.hidden = !state.project || !player.mode;
-  el.textStart.hidden = tr.busy || (has && !tr.redo);
+  const partial = transcribePartial() && !tr.redo;
+  el.textStart.hidden = tr.busy || (has && !tr.redo && !partial);
+  el.textRunBtn.textContent = partial ? 'Продолжить расшифровку' : 'Расшифровать';
   el.textProgress.hidden = !tr.busy;
   el.capView.hidden = !has;
   el.textFoot.hidden = !has || tr.busy;
   el.textRunBtn.disabled = yt;
+  const pct = tr.meta?.duration ? Math.round((tr.done.reduce((s, [a, b]) => s + b - a, 0) / tr.meta.duration) * 100) : 0;
   el.textHint.textContent = yt
     ? 'У YouTube-видео браузер не даёт достать звук — скачай видео и открой его файлом.'
-    : 'В браузере, звук никуда не уходит. Модель скачается один раз.';
+    : partial
+      ? `Расшифровано ${pct}% — продолжим с текущего момента.`
+      : 'В браузере, звук никуда не уходит. Начнём с текущего момента; модель скачается один раз.';
   if (!has) {
     el.words.innerHTML = '';
     tr.spans = [];
@@ -2178,6 +2240,7 @@ function seekToNote(n) {
 ============================================================ */
 
 function renderTimeline() {
+  renderAsrRanges();
   const d = state.dur;
   const notes = state.project?.notes || [];
   if (!d) {
