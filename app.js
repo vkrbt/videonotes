@@ -1526,6 +1526,10 @@ function wordIndexAt(t) {
 function mergeWords(words, a, b) {
   const i0 = wordIndexAt(a), i1 = wordIndexAt(b);
   tr.words.splice(i0, i1 - i0, ...words);
+  // выделение после вставленного куска остаётся на своих словах
+  const delta = words.length - (i1 - i0);
+  if (tr.sel && Math.min(tr.sel.a, tr.sel.b) >= i1) { tr.sel.a += delta; tr.sel.b += delta; }
+  if (tr.drag && tr.drag.start >= i1) tr.drag.start += delta;
 }
 
 // Какую модель можно на этой машине: turbo — только с видеокартой и от 8 ГБ памяти
@@ -1769,7 +1773,7 @@ function renderWindow(center) {
   }
   tr.win = [b[b0][0], b[b1 - 1][1]];
   el.words.innerHTML = b.slice(b0, b1).map(([i0, i1]) =>
-    `<div class="blk">${tr.words.slice(i0, i1).map((w, k) => `<span class="w" data-i="${i0 + k}">${esc(w.w)}</span>`).join(' ')}</div>`).join('');
+    `<div class="blk">${tr.words.slice(i0, i1).map((w, k) => `<span class="w" data-i="${i0 + k}" data-s="${w.s}">${esc(w.w)}</span>`).join(' ')}</div>`).join('');
   tr.spans = [...el.words.querySelectorAll('.w')];
   tr.cur = -1;
   paintSel();
@@ -1777,12 +1781,15 @@ function renderWindow(center) {
 }
 
 // Перестроили окно — слово, на которое смотрят, остаётся на том же месте, без анимации и скачка
+// Якорь — время начала слова, а не его номер: кусок, пришедший раньше текущего места,
+// вставляет слова в начало и сдвигает все номера — по номеру окно съезжало на строку и дёргалось
 function keepInPlace(rebuild) {
-  const anchor = tr.cur >= 0 ? tr.cur : Number(tr.spans.find((s) => lineOf(s) === tr.line)?.dataset.i ?? -1);
-  const before = spanOf(anchor) ? lineOf(spanOf(anchor)) : null;
+  const old = el.words.querySelector('.w.now') || tr.spans.find((x) => lineOf(x) === tr.line) || null;
+  const before = old ? lineOf(old) : null;
+  const at = old ? Number(old.dataset.s) : null;
   const line = tr.line;
   rebuild();
-  const s = spanOf(anchor);
+  const s = at !== null ? spanOf(wordIndexAt(at)) : null;
   el.words.style.transition = 'none';
   if (before !== null && s) showLine(line + lineOf(s) - before);
   else showLine(tr.spans.length ? lineOf(tr.spans[0]) : 0);
