@@ -2694,7 +2694,6 @@ function timelineTime(e) {
 
 const isHookType = (t) => /хук|hook/i.test(t);
 const GRIP_ICON = svg('<circle cx="9" cy="6" r="1.2" fill="currentColor"/><circle cx="15" cy="6" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="18" r="1.2" fill="currentColor"/><circle cx="15" cy="18" r="1.2" fill="currentColor"/>', 16);
-const PLAY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>';
 
 const hk = {
   scope: 'hooks',   // 'hooks' — только хуки, 'ranges' — все правки с отрезком
@@ -2958,7 +2957,6 @@ function renderHooks() {
             <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
           </button>
           ${point ? '<span class="hk-mark mono">момент</span>' : `
-          <button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>
           <button class="hk-mark mono" data-act="pick" title="Добавить в нарезку">+</button>`}
         </div>
       </div>`;
@@ -2981,7 +2979,7 @@ function renderHooks() {
         <span class="hk-top"><span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>${HK_MORE}</span>
         <span class="hk-text">${esc(hookText(n)) || '<i>без текста</i>'}</span>
       </span>
-      <button class="tool danger hk-x" data-act="remove" title="Убрать из нарезки — вернётся в список слева" aria-label="Убрать из нарезки">${ICON.close}</button>
+      <button class="hk-mark hk-out mono" data-act="remove" title="Убрать из нарезки — вернётся в список слева" aria-label="Убрать из нарезки">−</button>
     </li>`).join('') : `
     <li class="notes-empty hk-cut-empty">
       <strong>Пусто</strong>
@@ -3313,6 +3311,7 @@ function paintHookNow() {
   const into = hk.scrub?.at ? hk.scrub.at.at : hk.ended ? Infinity : pos - (hk.segs[ci]?.off || 0);
   hk.bar.forEach((b, k) => {
     const g = hk.segs[k];
+    if (!g) return; // склейку уже пересобрали, а полосу ещё нет
     b.style.width = `${k < ci ? 100 : k > ci ? 0 : clamp(into / segLen(g), 0, 1) * 100}%`;
   });
   if (hk.head) {

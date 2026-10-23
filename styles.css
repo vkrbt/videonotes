@@ -1475,8 +1475,6 @@ main {
 }
 .hk-hook.point .hk-mark { border: 0; font-size: 11px; font-weight: 500; cursor: default; }
 .hk-hook:not(.point) .hk-mark:hover { border-color: var(--accent); color: var(--accent-text); }
-.hk-solo { align-self: center; width: 30px; height: 30px; margin-right: 4px; color: var(--dim); }
-.hk-hook.now .hk-solo { color: var(--accent-text); }
 
 /* Нарезка: порядок меняется перетаскиванием */
 .hk-item {
@@ -1544,8 +1542,8 @@ main {
   border-radius: 0 3px 3px 0;
   background: var(--c);
 }
-.hk-x { flex: 0 0 auto; width: 26px; height: 26px; opacity: 0; transition: opacity 0.12s; }
-.hk-item:hover .hk-x, .hk-item:focus-within .hk-x, .hk-item:focus .hk-x { opacity: 1; }
+.hk-mark.hk-out { margin-right: 4px; }
+.hk-mark.hk-out:hover { border-color: var(--warn); color: var(--warn); }
 .hk-cut-empty { padding: 30px 14px; border: 1.5px dashed var(--line); border-radius: var(--r); }
 .hk-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; margin-top: 4px; border-top: 1px solid var(--line-soft); }
 
@@ -1748,7 +1746,6 @@ main {
 }
 @media (max-width: 640px) {
   .hk-grid { grid-template-columns: 1fr; }
-  .hk-x { opacity: 1; }
 }
 
 /* ---------- перетаскивание и тосты ---------- */
