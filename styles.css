@@ -1475,7 +1475,7 @@ main {
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .hk-hook.point .hk-mark { border: 0; font-size: 11px; font-weight: 500; cursor: default; }
-.hk-hook:not(.point):not(.in):hover .hk-mark { border-color: var(--accent); color: var(--accent-text); }
+.hk-hook:not(.point):not(.in) .hk-mark:hover { border-color: var(--accent); color: var(--accent-text); }
 .hk-hook.in .hk-mark { border: 1.5px solid var(--accent); background: var(--accent); color: #fff; }
 .hk-hook.in .hk-mark:hover { border-color: var(--warn); background: transparent; color: var(--warn); }
 .hk-solo { align-self: center; width: 30px; height: 30px; margin-right: 4px; color: var(--dim); }
@@ -1527,7 +1527,7 @@ main {
 .hk-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 
 /* Цвет персоны: кружки вверху карточки, выбранный — с обводкой; у помеченной карточки полоска толще */
-.hk-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.hk-top { display: flex; align-items: center; gap: 8px; min-height: 22px; }
 .hk-colors { display: inline-flex; gap: 2px; flex: none; opacity: 0.45; transition: opacity 0.12s; }
 .hk-hook:hover .hk-colors, .hk-item:hover .hk-colors, .hk-item:focus-within .hk-colors, .hk-colors:focus-within, .colored .hk-colors { opacity: 1; }
 .hk-sw {

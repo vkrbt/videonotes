@@ -178,8 +178,6 @@ function normalizeNote(n) {
 const PERSON_COLORS = [
   { c: '#4d6bff', name: 'синий' },
   { c: '#f472b6', name: 'розовый' },
-  { c: '#35d07f', name: 'зелёный' },
-  { c: '#c084fc', name: 'фиолетовый' },
 ];
 const normColor = (c) => (PERSON_COLORS.some((x) => x.c === c) ? c : null);
 
@@ -2855,12 +2853,12 @@ function renderHooks() {
     const text = hookText(n);
     return `
       <div class="hk-hook ${k ? 'in' : ''} ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''} ${n.color ? 'colored' : ''}" data-id="${n.id}" style="--c:${hookColor(n)}">
-        <div class="hk-top" ${point ? '' : 'data-act="pick"'}>
+        <div class="hk-top" ${point ? '' : 'data-act="solo"'}>
           <span class="hk-tc mono">${fmt(n.seconds)}${point ? '' : `<span class="dur">${secs(n.end - n.seconds)}</span>`}</span>
           ${swatchesHTML(n)}
         </div>
         <div class="hk-row">
-          <button class="hk-pick" data-act="pick" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}"`}>
+          <button class="hk-pick" data-act="solo" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${hk.solo === n.id ? 'Остановить' : 'Послушать'}"`}>
             <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
           </button>
           ${point ? '<span class="hk-mark mono">момент</span>' : `
@@ -2887,7 +2885,7 @@ function renderHooks() {
     </li>`).join('') : `
     <li class="notes-empty hk-cut-empty">
       <strong>Пусто</strong>
-      Нажимай на хуки слева — они встанут сюда по порядку. Порядок меняется перетаскиванием.
+      Жми «+» у хуков слева — они встанут сюда по порядку. Клик по карточке — послушать. Порядок меняется перетаскиванием.
     </li>`;
 
   const total = hookSegs(list, p).reduce((a, g) => a + segLen(g), 0);
@@ -4683,7 +4681,7 @@ function bind() {
     const id = b?.closest('[data-id]')?.dataset.id;
     if (!id) return;
     if (b.dataset.act === 'pick') toggleInCut(id);
-    else if (b.dataset.act === 'solo') solo(id);
+    else if (b.dataset.act === 'solo' && !b.closest('.point')) solo(id);
     else if (b.dataset.act === 'color') setHookColor(id, b.dataset.color);
   });
   el.hkCut.addEventListener('pointerdown', onCutDown);
