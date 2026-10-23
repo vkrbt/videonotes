@@ -180,7 +180,54 @@ const PERSON_COLORS = [
   { c: '#4d6bff', name: 'синий' },
   { c: '#f472b6', name: 'розовый' },
 ];
-const normColor = (c) => (PERSON_COLORS.some((x) => x.c === c) ? c : null);
+// Ещё цвета для новых людей — «+ Новый цвет» берёт случайный из тех, что ещё не заняты в этом видео
+const EXTRA_COLORS = [
+  { c: '#22c55e', name: 'зелёный' },
+  { c: '#9333ea', name: 'фиолетовый' },
+  { c: '#0ea5a4', name: 'бирюзовый' },
+  { c: '#e11d48', name: 'красный' },
+  { c: '#0ea5e9', name: 'голубой' },
+  { c: '#84cc16', name: 'салатовый' },
+  { c: '#92400e', name: 'коричневый' },
+  { c: '#475569', name: 'графитовый' },
+];
+const normColor = (c) => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : null);
+
+/** Цвета людей в видео: два базовых и все, что уже стоят на правках */
+function personColors(p = state.project) {
+  const list = [...PERSON_COLORS];
+  for (const n of p?.notes || []) {
+    if (n.color && !list.some((x) => x.c === n.color)) {
+      list.push({ c: n.color, name: EXTRA_COLORS.find((x) => x.c === n.color)?.name || `цвет ${list.length + 1}` });
+    }
+  }
+  return list;
+}
+
+function randomPersonColor(p = state.project) {
+  const used = new Set(personColors(p).map((x) => x.c));
+  const free = EXTRA_COLORS.filter((x) => !used.has(x.c));
+  if (free.length) return free[Math.floor(Math.random() * free.length)].c;
+  // Готовые кончились — насыщенный оттенок подальше от уже занятых, чтобы людей не путать
+  const hueOf = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+    if (!d) return null;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  };
+  const hues = [...used].map(hueOf).filter((x) => x !== null);
+  const gap = (x) => Math.min(...hues.map((y) => Math.min(Math.abs(x - y), 360 - Math.abs(x - y))), 360);
+  const off = Math.random() * 360;
+  const h = Array.from({ length: 36 }, (_, k) => (off + k * 10) % 360).reduce((a, b) => (gap(b) > gap(a) ? b : a));
+  const sat = 0.7, l = 0.5;
+  const f = (k) => {
+    const a = sat * Math.min(l, 1 - l);
+    const x = l - a * Math.max(-1, Math.min((k + h / 30) % 12 - 3, 9 - ((k + h / 30) % 12), 1));
+    return Math.round(x * 255).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
 
 const SHAPE_KINDS = ['ellipse', 'rect', 'arrow', 'pen'];
 function normShapes(list) {
@@ -2836,22 +2883,37 @@ function toggleHookMenu(btn) {
   menu.className = 'note-menu hk-menu';
   menu.dataset.for = id;
   menu.setAttribute('role', 'menu');
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
   menu.innerHTML = `
-    ${PERSON_COLORS.map((x) => `
-    <button data-act="color" data-color="${x.c}" title="${n.color === x.c ? 'Снять цвет' : 'Пометить, кто говорит'}" role="menuitemcheckbox" aria-checked="${n.color === x.c}" class="${n.color === x.c ? 'on' : ''}">
-      <i class="hk-dot" style="--sw:${x.c}"></i><span>${x.name[0].toUpperCase() + x.name.slice(1)}</span>${n.color === x.c ? ICON.check : ''}
-    </button>`).join('')}
+    <div class="hk-menu-label">Кто говорит</div>
+    <div class="hk-swatches" role="group" aria-label="Цвет — кто говорит">
+      ${personColors().map((x) => `
+      <button class="hk-sw ${n.color === x.c ? 'on' : ''}" data-act="color" data-color="${x.c}" style="--sw:${x.c}" role="menuitemcheckbox"
+        aria-checked="${n.color === x.c}" aria-label="${cap(x.name)}" title="${n.color === x.c ? `${cap(x.name)} — снять` : cap(x.name)}"></button>`).join('')}
+      <button class="hk-sw hk-sw-new" data-act="newcolor" role="menuitem" aria-label="Новый цвет" title="Новый цвет — случайный, которого ещё нет в этом видео">${svg('<path d="M12 6v12M6 12h12"/>', 14)}</button>
+    </div>
+    ${n.color ? `<button data-act="nocolor" role="menuitem" title="Вернуть обычный цвет типа правки">${svg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>', 15)}<span>Сбросить цвет</span></button>` : ''}
     <hr>
     <button data-act="dup" role="menuitem">${ICON.copy}<span>Дублировать</span></button>
     <button data-act="delete" role="menuitem" class="danger">${ICON.trash}<span>Удалить</span></button>`;
   el.hooksDialog.append(menu);
   btn.closest('[data-id]').classList.add('menu-open');
-  const r = btn.getBoundingClientRect();
+  placeHookMenu();
+  menu.querySelector('button').focus({ preventScroll: true });
+}
+
+/** Меню стоит у своей кнопки «⋯»; список прокрутили — едет следом, карточка ушла из виду — закрываем */
+function placeHookMenu() {
+  const menu = $('.hk-menu');
+  if (!menu) return;
+  const btn = $(`.menu-open [data-act="menu"]`, el.hooksDialog);
+  const box = btn?.closest('.hk-pool, .hk-cut')?.getBoundingClientRect();
+  const r = btn?.getBoundingClientRect();
+  if (!r || r.bottom < box.top || r.top > box.bottom) return closeNoteMenu();
   const w = menu.offsetWidth, h = menu.offsetHeight;
   menu.style.left = `${clamp(r.right - w, 8, window.innerWidth - w - 8)}px`;
   // Не хватает места снизу — открываем вверх
   menu.style.top = `${r.bottom + 4 + h > window.innerHeight - 8 ? r.top - 4 - h : r.bottom + 4}px`;
-  menu.querySelector('button').focus({ preventScroll: true });
 }
 
 function onHookMenu(e) {
@@ -2861,6 +2923,8 @@ function onHookMenu(e) {
   const id = menu.dataset.for;
   closeNoteMenu();
   if (b.dataset.act === 'color') setHookColor(id, b.dataset.color);
+  else if (b.dataset.act === 'newcolor') setHookColor(id, randomPersonColor());
+  else if (b.dataset.act === 'nocolor') setHookColor(id, findNote(id)?.color);
   else if (b.dataset.act === 'dup') duplicateHook(id);
   else if (b.dataset.act === 'delete') deleteHook(id);
 }
@@ -5034,9 +5098,9 @@ function bind() {
     else if (b.dataset.act === 'solo' && !b.closest('.point')) solo(id);
   });
   el.hooksDialog.addEventListener('click', onHookMenu);
-  // Меню висит поверх списка — при прокрутке оно бы оторвалось от своей карточки
-  el.hkPool.addEventListener('scroll', closeNoteMenu, { passive: true });
-  el.hkCut.addEventListener('scroll', closeNoteMenu, { passive: true });
+  // Меню висит поверх списка — при прокрутке двигаем его вместе с карточкой
+  el.hkPool.addEventListener('scroll', placeHookMenu, { passive: true });
+  el.hkCut.addEventListener('scroll', placeHookMenu, { passive: true });
   el.hkCut.addEventListener('pointerdown', onCutDown);
   el.hkCut.addEventListener('pointermove', onCutMove);
   el.hkCut.addEventListener('pointerup', onCutUp);

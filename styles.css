@@ -1528,9 +1528,33 @@ main {
 .menu-open .hk-more { background: var(--hover); color: var(--text); }
 .note-menu.hk-menu { position: fixed; top: 0; right: auto; z-index: 30; min-width: 200px; }
 .hk-menu hr { height: 1px; margin: 4px 6px; border: 0; background: var(--line-soft); }
-.hk-menu button > svg:last-child:not(:first-child) { margin-left: auto; color: var(--accent-text); }
-.hk-dot { flex: none; width: 12px; height: 12px; margin: 0 2px; border-radius: 50%; background: var(--sw); }
-.hk-menu button.on .hk-dot { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--sw); }
+.hk-menu-label { padding: 6px 10px 2px; color: var(--dim); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.hk-swatches { display: grid; grid-template-columns: repeat(6, 28px); gap: 4px; padding: 6px 8px 8px; }
+.note-menu .hk-sw {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+}
+.note-menu .hk-sw::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--sw);
+  transition: transform 0.12s;
+}
+.note-menu .hk-sw:hover, .note-menu .hk-sw:focus-visible { background: transparent; }
+.note-menu .hk-sw:hover::after { transform: scale(1.18); }
+.note-menu .hk-sw.on::after { inset: 6px; box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--sw); }
+.note-menu .hk-sw:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.note-menu .hk-sw-new { color: var(--dim); }
+.note-menu .hk-sw-new::after { inset: 4px; border: 1.5px dashed var(--line); background: transparent; }
+.note-menu .hk-sw-new:hover { color: var(--accent-text); }
+.note-menu .hk-sw-new:hover::after { border-color: var(--accent); transform: none; }
 .hk-hook.colored::before { width: 5px; }
 .hk-item.colored::before {
   content: '';
