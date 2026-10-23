@@ -65,6 +65,7 @@ const ICON = {
   trash: svg('<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>', 15),
   more: svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>', 16),
   frame: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><ellipse cx="12" cy="12" rx="4.5" ry="3"/>', 16),
+  copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>', 15),
 };
 
 /* ---------- хранилище ---------- */
@@ -2509,10 +2510,8 @@ function renderNotes({ flash } = {}) {
 
 /* Меню «⋯» у правки: действия с подписями, а не загадочные иконки */
 function closeNoteMenu() {
-  $$('.note-menu').forEach((m) => {
-    m.closest('.note')?.classList.remove('menu-open');
-    m.remove();
-  });
+  $$('.note-menu').forEach((m) => m.remove());
+  $$('.menu-open').forEach((x) => x.classList.remove('menu-open'));
 }
 
 function toggleNoteMenu(node, n) {
@@ -2537,7 +2536,11 @@ document.addEventListener('pointerdown', (e) => {
   if (!e.target.closest('.status-menu, #statusBtn')) closeStatusMenu();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('.note-menu')) closeNoteMenu();
+  if (e.key === 'Escape' && $('.note-menu')) {
+    // Esc закрывает только меню, а не окно, в котором оно открыто
+    if ($('.hk-menu')) e.preventDefault();
+    closeNoteMenu();
+  }
   if (e.key === 'Escape' && $('.status-menu')) closeStatusMenu();
 }, true);
 
@@ -2714,6 +2717,10 @@ const hk = {
   auditionTimer: 0,
   win: null,        // [от, до] — какой кусок исходника показывает таймлайн куска
   edgeDrag: null,   // тянут край куска: { edge, n }
+  scrub: null,      // тянут по полосе склейки: { was — играло ли до, at — куда тянут }
+  barSegs: [],
+  head: null,
+  guide: null,
 };
 
 const TRIM_STEP = 0.05;
@@ -2722,11 +2729,97 @@ const hookCut = (p = state.project) => (p.hooks ||= normHooks(null));
 
 const hookColor = (n) => n?.color || typeColor(n?.type);
 
-/** Кружки цвета вверху карточки: клик — пометить персону, клик по выбранному — снять */
-function swatchesHTML(n) {
-  return `<span class="hk-colors" role="group" aria-label="Цвет — кто говорит">${PERSON_COLORS.map((x) => `
-    <button class="hk-sw ${n.color === x.c ? 'on' : ''}" data-act="color" data-color="${x.c}" style="--sw:${x.c}"
-      title="${n.color === x.c ? 'Снять цвет' : `Пометить: ${x.name}`}" aria-label="${x.name}" aria-pressed="${n.color === x.c}"></button>`).join('')}</span>`;
+const HK_MORE = '<button class="tool hk-more" data-act="menu" title="Цвет, дублировать, удалить" aria-label="Ещё" aria-haspopup="menu">' + ICON.more + '</button>';
+
+/* Меню «⋯» у хука: цвет персоны, дублировать, удалить. Висит поверх списков, чтобы прокрутка его не обрезала */
+function toggleHookMenu(btn) {
+  const id = btn.closest('[data-id]').dataset.id;
+  const open = $('.hk-menu')?.dataset.for === id;
+  closeNoteMenu();
+  const n = findNote(id);
+  if (open || !n) return;
+  const menu = document.createElement('div');
+  menu.className = 'note-menu hk-menu';
+  menu.dataset.for = id;
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `
+    ${PERSON_COLORS.map((x) => `
+    <button data-act="color" data-color="${x.c}" title="${n.color === x.c ? 'Снять цвет' : 'Пометить, кто говорит'}" role="menuitemcheckbox" aria-checked="${n.color === x.c}" class="${n.color === x.c ? 'on' : ''}">
+      <i class="hk-dot" style="--sw:${x.c}"></i><span>${x.name[0].toUpperCase() + x.name.slice(1)}</span>${n.color === x.c ? ICON.check : ''}
+    </button>`).join('')}
+    <hr>
+    <button data-act="dup" role="menuitem">${ICON.copy}<span>Дублировать</span></button>
+    <button data-act="delete" role="menuitem" class="danger">${ICON.trash}<span>Удалить</span></button>`;
+  el.hooksDialog.append(menu);
+  btn.closest('[data-id]').classList.add('menu-open');
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = `${clamp(r.right - w, 8, window.innerWidth - w - 8)}px`;
+  // Не хватает места снизу — открываем вверх
+  menu.style.top = `${r.bottom + 4 + h > window.innerHeight - 8 ? r.top - 4 - h : r.bottom + 4}px`;
+  menu.querySelector('button').focus({ preventScroll: true });
+}
+
+function onHookMenu(e) {
+  const b = e.target.closest('button[data-act]');
+  const menu = b?.closest('.hk-menu');
+  if (!menu) return;
+  const id = menu.dataset.for;
+  closeNoteMenu();
+  if (b.dataset.act === 'color') setHookColor(id, b.dataset.color);
+  else if (b.dataset.act === 'dup') duplicateHook(id);
+  else if (b.dataset.act === 'delete') deleteHook(id);
+}
+
+/** Копия хука с новым id. Если оригинал в нарезке — копия встаёт сразу за ним */
+function duplicateHook(id) {
+  const p = state.project;
+  const n = findNote(id);
+  if (!n) return;
+  const copy = { ...structuredClone(n), id: uid(), createdAt: Date.now() };
+  p.notes.push(copy);
+  sortNotes(p.notes);
+  const ids = hookCut(p).ids;
+  const k = ids.indexOf(id);
+  if (k >= 0) ids.splice(k + 1, 0, copy.id);
+  saveProject();
+  renderNotes();
+  renderTimeline();
+  renderHooks();
+  hkRebuild({ keep: true });
+  (k >= 0 ? el.hkCut : el.hkPool).querySelector(`[data-id="${copy.id}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+/** Удалить саму правку — и из нарезки, и с карты правок. «Вернуть» ставит её на прежнее место */
+function deleteHook(id) {
+  const p = state.project;
+  const i = p.notes.findIndex((n) => n.id === id);
+  if (i < 0) return;
+  const [removed] = p.notes.splice(i, 1);
+  const ids = hookCut(p).ids;
+  const k = ids.indexOf(id);
+  if (k >= 0) ids.splice(k, 1);
+  if (hk.solo === id) hk.solo = null;
+  hk.orig.delete(id);
+  const redraw = () => {
+    saveProject();
+    renderNotes();
+    renderTimeline();
+    renderHooks();
+    hkRebuild({ keep: true });
+  };
+  redraw();
+  toast(`Хук ${fmt(removed.seconds)} удалён`, {
+    action: 'Вернуть',
+    onAction: () => {
+      if (state.project !== p || p.notes.some((n) => n.id === id)) return;
+      p.notes.push(removed);
+      sortNotes(p.notes);
+      const now = hookCut(p).ids;
+      if (k >= 0 && !now.includes(id)) now.splice(Math.min(k, now.length), 0, id);
+      redraw();
+    },
+  });
 }
 
 function setHookColor(id, c) {
@@ -2821,6 +2914,7 @@ function mountHookPlayer() {
 }
 
 function unmountHookPlayer() {
+  closeNoteMenu();
   clearTimeout(hk.auditionTimer);
   hkPause();
   hk.vids.forEach((v) => {
@@ -2835,6 +2929,7 @@ function unmountHookPlayer() {
   hk.ytReady = false;
   el.hkYt.innerHTML = '';
   hk.drag = null;
+  hk.scrub = null;
 }
 
 /* ---------- списки ---------- */
@@ -2846,16 +2941,17 @@ function renderHooks() {
   const order = new Map(cutNotes(p).map((n, k) => [n.id, k + 1]));
   $$('[data-scope]', el.hkScope).forEach((b) => b.classList.toggle('on', b.dataset.scope === hk.scope));
 
-  const pool = hk.scope === 'hooks' ? p.notes.filter((n) => isHookType(n.type)) : p.notes.filter((n) => n.end !== null);
+  // Выбранное уезжает в нарезку справа, а убранное из нарезки возвращается сюда на своё место по времени
+  const all = hk.scope === 'hooks' ? p.notes.filter((n) => isHookType(n.type)) : p.notes.filter((n) => n.end !== null);
+  const pool = all.filter((n) => !order.has(n.id));
   el.hkPool.innerHTML = pool.length ? pool.map((n) => {
-    const k = order.get(n.id);
     const point = n.end === null;
     const text = hookText(n);
     return `
-      <div class="hk-hook ${k ? 'in' : ''} ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''} ${n.color ? 'colored' : ''}" data-id="${n.id}" style="--c:${hookColor(n)}">
+      <div class="hk-hook ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''} ${n.color ? 'colored' : ''}" data-id="${n.id}" style="--c:${hookColor(n)}">
         <div class="hk-top" ${point ? '' : 'data-act="solo"'}>
           <span class="hk-tc mono">${fmt(n.seconds)}${point ? '' : `<span class="dur">${secs(n.end - n.seconds)}</span>`}</span>
-          ${swatchesHTML(n)}
+          ${HK_MORE}
         </div>
         <div class="hk-row">
           <button class="hk-pick" data-act="solo" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${hk.solo === n.id ? 'Остановить' : 'Послушать'}"`}>
@@ -2863,10 +2959,14 @@ function renderHooks() {
           </button>
           ${point ? '<span class="hk-mark mono">момент</span>' : `
           <button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>
-          <button class="hk-mark mono" data-act="pick" title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}">${k || '+'}</button>`}
+          <button class="hk-mark mono" data-act="pick" title="Добавить в нарезку">+</button>`}
         </div>
       </div>`;
-  }).join('') : `
+  }).join('') : all.length ? `
+    <div class="notes-empty">
+      <strong>Всё в нарезке</strong>
+      Убери кусок из нарезки справа — он вернётся сюда.
+    </div>` : `
     <div class="notes-empty">
       <strong>${hk.scope === 'hooks' ? 'Хуков пока нет' : 'Отрезков пока нет'}</strong>
       Выдели фразу в тексте речи или протяни по карте правок, выбери тип «Хук» и добавь — кусок появится здесь.
@@ -2878,10 +2978,10 @@ function renderHooks() {
       <span class="hk-grip" aria-hidden="true">${GRIP_ICON}</span>
       <span class="hk-num mono">${k + 1}</span>
       <span class="hk-body">
-        <span class="hk-top"><span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>${swatchesHTML(n)}</span>
+        <span class="hk-top"><span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>${HK_MORE}</span>
         <span class="hk-text">${esc(hookText(n)) || '<i>без текста</i>'}</span>
       </span>
-      <button class="tool danger hk-x" data-act="remove" title="Убрать из нарезки" aria-label="Убрать из нарезки">${ICON.close}</button>
+      <button class="tool danger hk-x" data-act="remove" title="Убрать из нарезки — вернётся в список слева" aria-label="Убрать из нарезки">${ICON.close}</button>
     </li>`).join('') : `
     <li class="notes-empty hk-cut-empty">
       <strong>Пусто</strong>
@@ -3175,9 +3275,30 @@ function renderHookBar() {
   el.hkBar.hidden = !hk.segs.length;
   el.hkBar.innerHTML = hk.segs.map((g, k) => {
     const n = findNote(g.id);
-    return `<div class="hk-seg" style="--w:${segLen(g).toFixed(3)};--c:${hookColor(n)}" title="${k + 1}. ${esc(n ? hookText(n) : '').slice(0, 120)}"><i></i><span>${hk.solo ? '▶' : k + 1}</span></div>`;
-  }).join('');
-  hk.bar = $$('.hk-seg i', el.hkBar);
+    return `<div class="hk-seg" style="--w:${segLen(g).toFixed(3)};--c:${hookColor(n)}"><i></i><span>${hk.solo ? '▶' : k + 1}</span></div>`;
+  }).join('') + '<div class="hk-bar-guide" hidden><span class="mono"></span></div><div class="hk-bar-head"></div>';
+  hk.barSegs = $$('.hk-seg', el.hkBar);
+  hk.bar = hk.barSegs.map((x) => $('i', x));
+  hk.head = $('.hk-bar-head', el.hkBar);
+  hk.guide = $('.hk-bar-guide', el.hkBar);
+}
+
+/** Точка склейки (кусок k, at секунд от его начала) → x на полосе. Куски разделены зазорами, поэтому считаем по самим элементам */
+function hkBarX(k, at) {
+  const x = hk.barSegs[k], g = hk.segs[k];
+  if (!x || !g) return 0;
+  return x.offsetLeft + clamp(at / segLen(g), 0, 1) * x.offsetWidth;
+}
+
+/** x на полосе → какой кусок и где в нём. Зазор между кусками относим к ближайшему */
+function hkBarHit(e) {
+  const r = el.hkBar.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const segs = hk.barSegs;
+  let k = segs.findIndex((s, j) => x < (segs[j + 1] ? (s.offsetLeft + s.offsetWidth + segs[j + 1].offsetLeft) / 2 : Infinity));
+  if (k < 0) k = segs.length - 1;
+  const s = segs[k];
+  return { k, at: clamp((x - s.offsetLeft) / s.offsetWidth, 0, 1) * segLen(hk.segs[k]) };
 }
 
 function paintHookNow() {
@@ -3187,10 +3308,17 @@ function paintHookNow() {
   el.hkScreen.closest('.hk-stage').classList.toggle('playing', hk.playing);
   el.hkPlayBtn.disabled = !hk.segs.length;
   el.hkPrevBtn.disabled = el.hkNextBtn.disabled = hk.segs.length < 2 && !hk.solo;
+  // Пока тянут по полосе, рисуем там, где палец, — плеер догоняет с задержкой
+  const ci = hk.scrub?.at ? hk.scrub.at.k : hk.i;
+  const into = hk.scrub?.at ? hk.scrub.at.at : hk.ended ? Infinity : pos - (hk.segs[ci]?.off || 0);
   hk.bar.forEach((b, k) => {
     const g = hk.segs[k];
-    b.style.width = `${k < hk.i ? 100 : k > hk.i ? 0 : clamp((pos - g.off) / segLen(g), 0, 1) * 100}%`;
+    b.style.width = `${k < ci ? 100 : k > ci ? 0 : clamp(into / segLen(g), 0, 1) * 100}%`;
   });
+  if (hk.head) {
+    hk.head.hidden = !hk.segs.length;
+    hk.head.style.left = `${hkBarX(ci, into)}px`;
+  }
   const g = hk.segs[hk.i];
   const id = g && !hk.solo ? g.id : null;
   $$('.hk-item', el.hkCut).forEach((x) => x.classList.toggle('now', x.dataset.id === id));
@@ -3365,16 +3493,45 @@ function trimReset() {
   afterTrim();
 }
 
-function onHookBarClick(e) {
-  if (!hk.total) return;
-  // Ширина кусков на полосе пропорциональна длине, но между ними зазоры — ищем кусок по самому элементу
-  const seg = e.target.closest('.hk-seg');
-  const k = seg ? $$('.hk-seg', el.hkBar).indexOf(seg) : -1;
-  if (k < 0) return;
-  const sr = seg.getBoundingClientRect();
-  const frac = clamp((e.clientX - sr.left) / sr.width, 0, 1);
-  hkGo(k, frac * segLen(hk.segs[k]));
-  if (hk.playing) hkPlay();
+/* Полоса склейки как в основном плеере: клик и протягивание перематывают, вертикальная черта — где мы сейчас */
+function onBarDown(e) {
+  if (e.button !== 0 || !hk.segs.length) return;
+  e.preventDefault();
+  hk.scrub = { was: hk.playing, last: 0, at: hkBarHit(e) };
+  if (hk.playing) hkPause();
+  el.hkBar.setPointerCapture?.(e.pointerId);
+  el.hkBar.classList.add('scrubbing');
+  barSeek(e, true);
+}
+
+function onBarMove(e) {
+  if (!hk.segs.length) return;
+  const at = hkBarHit(e);
+  hk.guide.hidden = false;
+  hk.guide.style.left = `${hkBarX(at.k, at.at)}px`;
+  $('span', hk.guide).textContent = `${hk.solo ? '' : `${at.k + 1} · `}${fmt(hk.segs[at.k].off + at.at, { hours: false })}`;
+  if (hk.scrub) barSeek(e);
+}
+
+function onBarUp(e) {
+  const d = hk.scrub;
+  if (!d) return;
+  if (e.type === 'pointerup') barSeek(e, true);
+  hk.scrub = null;
+  el.hkBar.classList.remove('scrubbing');
+  if (e.type !== 'pointerup' || !el.hkBar.matches(':hover')) hk.guide.hidden = true;
+  if (d.was) hkPlay();
+  else paintHookNow();
+}
+
+function barSeek(e, now = false) {
+  const d = hk.scrub;
+  d.at = hkBarHit(e);
+  // Перематываем не чаще раза в 50 мс — иначе YouTube и второй плеер не успевают
+  if (now || Date.now() - d.last > 50) {
+    d.last = Date.now();
+    hkGo(d.at.k, d.at.at);
+  } else paintHookNow();
 }
 
 /* ---------- текст для агента ---------- */
@@ -4680,18 +4837,22 @@ function bind() {
     const b = e.target.closest('[data-act]');
     const id = b?.closest('[data-id]')?.dataset.id;
     if (!id) return;
-    if (b.dataset.act === 'pick') toggleInCut(id);
+    if (b.dataset.act === 'menu') toggleHookMenu(b);
+    else if (b.dataset.act === 'pick') toggleInCut(id);
     else if (b.dataset.act === 'solo' && !b.closest('.point')) solo(id);
-    else if (b.dataset.act === 'color') setHookColor(id, b.dataset.color);
   });
+  el.hooksDialog.addEventListener('click', onHookMenu);
+  // Меню висит поверх списка — при прокрутке оно бы оторвалось от своей карточки
+  el.hkPool.addEventListener('scroll', closeNoteMenu, { passive: true });
+  el.hkCut.addEventListener('scroll', closeNoteMenu, { passive: true });
   el.hkCut.addEventListener('pointerdown', onCutDown);
   el.hkCut.addEventListener('pointermove', onCutMove);
   el.hkCut.addEventListener('pointerup', onCutUp);
   el.hkCut.addEventListener('pointercancel', onCutUp);
   el.hkCut.addEventListener('click', (e) => {
-    const sw = e.target.closest('[data-act="color"]');
-    if (sw) {
-      setHookColor(sw.closest('[data-id]').dataset.id, sw.dataset.color);
+    const more = e.target.closest('[data-act="menu"]');
+    if (more) {
+      toggleHookMenu(more);
       return;
     }
     const id = e.target.closest('[data-act="remove"]')?.closest('[data-id]')?.dataset.id;
@@ -4717,7 +4878,11 @@ function bind() {
   el.hkPlayBtn.addEventListener('click', hkToggle);
   el.hkPrevBtn.addEventListener('click', hkPrev);
   el.hkNextBtn.addEventListener('click', () => hkGo(Math.min(hk.i + 1, hk.segs.length - 1)));
-  el.hkBar.addEventListener('click', onHookBarClick);
+  el.hkBar.addEventListener('pointerdown', onBarDown);
+  el.hkBar.addEventListener('pointermove', onBarMove);
+  el.hkBar.addEventListener('pointerup', onBarUp);
+  el.hkBar.addEventListener('pointercancel', onBarUp);
+  el.hkBar.addEventListener('pointerleave', () => { if (!hk.scrub && hk.guide) hk.guide.hidden = true; });
   el.hkScreen.addEventListener('click', hkToggle);
   el.hkPad.addEventListener('change', () => {
     hookCut().pad = +el.hkPad.value;
