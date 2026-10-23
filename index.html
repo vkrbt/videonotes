@@ -366,6 +366,29 @@
             <div class="hk-empty" id="hkEmpty">Накликай хуки слева — здесь будет склейка</div>
           </div>
           <div class="hk-bar" id="hkBar"></div>
+          <div class="hk-clip" id="hkClip" hidden>
+            <div class="hk-clip-lane" id="hkClipLane" title="Тяни края, чтобы подвинуть начало и конец. Клик — встать на этот момент">
+              <div class="hk-clip-pad" id="hkClipPad"></div>
+              <div class="hk-clip-words" id="hkClipWords"></div>
+              <div class="hk-clip-sel" id="hkClipSel"><span class="hk-h" data-edge="s"></span><span class="hk-h" data-edge="e"></span></div>
+              <div class="hk-clip-head" id="hkClipHead"></div>
+            </div>
+            <div class="hk-trim">
+              <div class="hk-edge" data-edge="s">
+                <span class="hk-edge-label">Начало</span>
+                <button class="iconbtn hk-nudge" data-d="-1" title="Раньше на 0,05 с (с Shift — на 0,25 с)" aria-label="Начало раньше">−</button>
+                <button class="hk-edge-tc mono" data-act="here" title="Начало — на текущий момент (I)"></button>
+                <button class="iconbtn hk-nudge" data-d="1" title="Позже на 0,05 с (с Shift — на 0,25 с)" aria-label="Начало позже">+</button>
+              </div>
+              <div class="hk-edge" data-edge="e">
+                <span class="hk-edge-label">Конец</span>
+                <button class="iconbtn hk-nudge" data-d="-1" title="Раньше на 0,05 с (с Shift — на 0,25 с)" aria-label="Конец раньше">−</button>
+                <button class="hk-edge-tc mono" data-act="here" title="Конец — на текущий момент (O)"></button>
+                <button class="iconbtn hk-nudge" data-d="1" title="Позже на 0,05 с (с Shift — на 0,25 с)" aria-label="Конец позже">+</button>
+              </div>
+              <button class="link-btn hk-trim-reset" id="hkTrimReset" hidden>Вернуть как было</button>
+            </div>
+          </div>
           <div class="hk-controls">
             <button class="iconbtn" id="hkPrevBtn" title="К началу куска, ещё раз — к предыдущему (←)" aria-label="Предыдущий кусок">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5v14"/><path d="M18 5 9 12l9 7z"/></svg>
@@ -449,6 +472,7 @@
         <dt><kbd>D</kbd></dt><dd>Обвести на кадре — пометка сразу прикрепляется к правке (Esc — закрыть, ⌘Z — шаг назад)</dd>
         <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
         <dt><kbd>H</kbd></dt><dd>Собрать хуки: накликать куски, расставить и посмотреть склейку</dd>
+        <dt>В сборке <kbd>I</kbd> / <kbd>O</kbd></dt><dd>Начало / конец текущего куска — на текущий момент</dd>
         <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки</dd>
         <dt><kbd>Esc</kbd></dt><dd>Выйти из поля / закрыть окно</dd>
       </dl>

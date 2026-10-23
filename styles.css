@@ -1440,9 +1440,9 @@ main {
 .hk-hook.now { border-color: var(--accent); }
 .hk-hook.point { opacity: 0.5; }
 .hk-pick {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   flex: 1;
   min-width: 0;
   padding: 9px 4px 9px 13px;
@@ -1453,12 +1453,12 @@ main {
   cursor: pointer;
 }
 .hk-pick:disabled { cursor: default; }
-.hk-pick .hk-tc { grid-column: 1; }
-.hk-pick .hk-text { grid-column: 1; }
 .hk-mark {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  flex: 0 0 auto;
   align-self: center;
+  margin-right: 10px;
+  background: transparent;
+  cursor: pointer;
   display: grid;
   place-items: center;
   min-width: 26px;
@@ -1471,11 +1471,11 @@ main {
   font-weight: 700;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.hk-hook.point .hk-mark { border: 0; font-size: 11px; font-weight: 500; }
-.hk-hook:not(.point):not(.in) .hk-pick:hover .hk-mark { border-color: var(--accent); color: var(--accent-text); }
+.hk-hook.point .hk-mark { border: 0; font-size: 11px; font-weight: 500; cursor: default; }
+.hk-hook:not(.point):not(.in):hover .hk-mark { border-color: var(--accent); color: var(--accent-text); }
 .hk-hook.in .hk-mark { border: 1.5px solid var(--accent); background: var(--accent); color: #fff; }
-.hk-hook.in .hk-pick:hover .hk-mark { border-color: var(--warn); background: transparent; color: var(--warn); }
-.hk-solo { align-self: center; width: 30px; height: 30px; margin-right: 6px; color: var(--dim); }
+.hk-hook.in .hk-mark:hover { border-color: var(--warn); background: transparent; color: var(--warn); }
+.hk-solo { align-self: center; width: 30px; height: 30px; margin-right: 4px; color: var(--dim); }
 .hk-hook.now .hk-solo { color: var(--accent-text); }
 
 /* Нарезка: порядок меняется перетаскиванием */
@@ -1595,6 +1595,87 @@ main {
 .hk-pad { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--dim); font-size: 13px; font-weight: 700; }
 .hk-pad .field-sm { width: auto; padding: 6px 8px; font-size: 13px; }
 .hk-now { min-height: 1.4em; margin: 8px 0 0; }
+/* Таймлайн текущего куска: ползунки начала и конца тянутся мышью */
+.hk-clip { margin-top: 12px; padding: 10px; border: 1px solid var(--line-soft); border-radius: var(--r); background: var(--bg-3); }
+.hk-clip-lane {
+  position: relative;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 8px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--line-soft) calc(10% - 1px) 10%),
+    var(--preview-bg);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.hk-clip-pad { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.hk-clip-words { position: absolute; inset: auto 0 6px; height: 20px; }
+.hk-clip-words span {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  padding: 0 2px;
+  border-left: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.hk-clip-words span.in { color: var(--text); font-weight: 600; }
+.hk-clip-sel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+}
+.hk-h {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 12px;
+  border-radius: 4px;
+  background: var(--accent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+.hk-h[data-edge="s"] { left: -6px; }
+.hk-h[data-edge="e"] { right: -6px; }
+.hk-h::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: #fff;
+  transform: translate(-50%, -50%);
+}
+.hk-h:hover, .hk-clip.dragging .hk-h { background: var(--accent-hover); }
+.hk-clip.dragging .hk-clip-lane { cursor: ew-resize; }
+.hk-clip-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--warn); pointer-events: none; }
+.hk-trim { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 10px; }
+.hk-edge { display: inline-flex; align-items: center; gap: 6px; }
+.hk-edge-label { margin-right: 2px; color: var(--dim); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.hk-nudge { width: 30px; height: 30px; border-radius: 8px; font-size: 17px; font-weight: 700; line-height: 1; }
+.hk-edge-tc {
+  min-width: 92px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+.hk-edge-tc:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+.hk-trim-reset { font-size: 13px; }
 
 @media (max-width: 1000px) {
   .hk-grid { grid-template-columns: 1fr 1fr; height: auto; }

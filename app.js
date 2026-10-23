@@ -444,6 +444,13 @@ const el = {
   hkClock: $('#hkClock'),
   hkPad: $('#hkPad'),
   hkNow: $('#hkNow'),
+  hkClip: $('#hkClip'),
+  hkClipLane: $('#hkClipLane'),
+  hkClipPad: $('#hkClipPad'),
+  hkClipWords: $('#hkClipWords'),
+  hkClipSel: $('#hkClipSel'),
+  hkClipHead: $('#hkClipHead'),
+  hkTrimReset: $('#hkTrimReset'),
   filters: $('#filters'),
   notesList: $('#notesList'),
 
@@ -2691,7 +2698,15 @@ const hk = {
   raf: 0,
   drag: null,
   bar: [],
+  stopAt: null,     // послушать стык и остановиться: где встать, в секундах склейки
+  orig: new Map(),  // границы хуков до подрезки в этом окне — чтобы вернуть как было
+  trimKey: '',
+  auditionTimer: 0,
+  win: null,        // [от, до] — какой кусок исходника показывает таймлайн куска
+  edgeDrag: null,   // тянут край куска: { edge, n }
 };
+
+const TRIM_STEP = 0.05;
 
 const hookCut = (p = state.project) => (p.hooks ||= normHooks(null));
 
@@ -2731,7 +2746,8 @@ function openHooks() {
   const cut = hookCut(p);
   cut.ids = cut.ids.filter((id) => p.notes.some((n) => n.id === id));
   hk.scope = p.notes.some((n) => isHookType(n.type)) ? 'hooks' : 'ranges';
-  Object.assign(hk, { solo: null, i: 0, playing: false, ended: false, segs: [] });
+  Object.assign(hk, { solo: null, i: 0, playing: false, ended: false, segs: [], stopAt: null, trimKey: '', win: null, edgeDrag: null });
+  hk.orig.clear();
   el.hkPad.innerHTML = HOOK_PADS.map((v) => `<option value="${v}" ${v === cut.pad ? 'selected' : ''}>${v ? `±${v.toFixed(1).replace('.', ',')} с` : 'нет'}</option>`).join('');
   el.hooksDialog.showModal();
   mountHookPlayer();
@@ -2776,6 +2792,7 @@ function mountHookPlayer() {
 }
 
 function unmountHookPlayer() {
+  clearTimeout(hk.auditionTimer);
   hkPause();
   hk.vids.forEach((v) => {
     v.removeAttribute('src');
@@ -2810,9 +2827,10 @@ function renderHooks() {
         <button class="hk-pick" data-act="pick" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}"`}>
           <span class="hk-tc mono">${fmt(n.seconds)}${point ? '' : `<span class="dur">${secs(n.end - n.seconds)}</span>`}</span>
           <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
-          <span class="hk-mark mono">${point ? 'момент' : k || '+'}</span>
         </button>
-        ${point ? '' : `<button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>`}
+        ${point ? '<span class="hk-mark mono">момент</span>' : `
+        <button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>
+        <button class="hk-mark mono" data-act="pick" title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}">${k || '+'}</button>`}
       </div>`;
   }).join('') : `
     <div class="notes-empty">
@@ -2985,10 +3003,10 @@ function hkPos() {
   return g.off + clamp(hkTime() - g.s, 0, segLen(g));
 }
 
-function hkRebuild() {
+function hkRebuild({ keep = false } = {}) {
   if (!el.hooksDialog.open) return;
-  // Во время просмотра остаёмся на текущем куске; на паузе после правок нарезки — снова с начала
-  const was = hk.playing ? hk.segs[hk.i]?.id : null;
+  // Во время просмотра (и при подрезке) остаёмся на текущем куске; на паузе после правок нарезки — снова с начала
+  const was = hk.playing || keep ? hk.segs[hk.i]?.id : null;
   const list = hk.solo ? state.project.notes.filter((n) => n.id === hk.solo && n.end !== null) : cutNotes();
   hk.segs = hookSegs(list);
   const last = hk.segs.at(-1);
@@ -3050,6 +3068,10 @@ function hkPlay() {
     if (!seg) return hkPause();
     const v = player.mode === 'yt' ? null : hkActive();
     if (hkTime() >= seg.e - 0.012 || v?.ended) hkNext();
+    if (hk.stopAt !== null && hk.playing && hkPos() >= hk.stopAt) {
+      hk.stopAt = null;
+      hkPause();
+    }
     paintHookNow();
     hk.raf = requestAnimationFrame(step);
   };
@@ -3059,6 +3081,7 @@ function hkPlay() {
 
 function hkPause() {
   hk.playing = false;
+  hk.stopAt = null;
   cancelAnimationFrame(hk.raf);
   if (player.mode === 'yt') hk.ytReady && hk.yt.pauseVideo();
   else hk.vids.forEach((v) => v.pause());
@@ -3139,6 +3162,173 @@ function paintHookNow() {
   $$('.hk-item', el.hkCut).forEach((x) => x.classList.toggle('now', x.dataset.id === id));
   const n = g && findNote(g.id);
   el.hkNow.textContent = n ? `${hk.solo ? 'Отдельно' : `${hk.i + 1} из ${hk.segs.length}`} · ${fmt(g.s)}–${fmt(g.e)} в исходнике` : '';
+  renderTrim(n);
+}
+
+/* ---------- подрезка границ текущего куска ---------- */
+
+/** Таймлайн текущего куска: кусок с запасом вокруг, слова, ползунки начала и конца */
+function renderTrim(n) {
+  const has = !!n && n.end !== null;
+  el.hkClip.hidden = !has;
+  if (!has) { hk.trimKey = ''; return; }
+  const key = `${n.id}|${n.seconds}|${n.end}|${hookCut().pad}|${hk.orig.has(n.id)}|${tr.words?.length || 0}`;
+  if (key !== hk.trimKey || !hk.win) {
+    hk.trimKey = key;
+    // Окно стоит на месте, пока край не выйдет за него, — иначе шкала уезжает из-под мыши и кнопок
+    const out = hk.win && (n.seconds < hk.win[0] + 0.15 || n.end > hk.win[1] - 0.15);
+    if (!hk.win || hk.winId !== n.id || (out && !hk.edgeDrag)) {
+      hk.winId = n.id;
+      const len = n.end - n.seconds;
+      const ctx = clamp(len * 0.35, 1, 4);
+      const dur = state.dur || state.project.duration || Infinity;
+      hk.win = [Math.max(0, n.seconds - ctx), Math.min(dur, n.end + ctx)];
+    }
+    const [w0, w1] = hk.win;
+    const x = (t) => `${clamp((t - w0) / (w1 - w0), 0, 1) * 100}%`;
+    const pad = hookCut().pad;
+    el.hkClipSel.style.left = x(n.seconds);
+    el.hkClipSel.style.right = `calc(100% - ${x(n.end)})`;
+    el.hkClipPad.hidden = !pad;
+    el.hkClipPad.style.left = x(n.seconds - pad);
+    el.hkClipPad.style.right = `calc(100% - ${x(n.end + pad)})`;
+    el.hkClipWords.innerHTML = (tr.words || []).filter((w) => w.e > w0 && w.s < w1).map((w) => {
+      const inside = w.s >= n.seconds - 0.02 && w.e <= n.end + 0.02;
+      return `<span class="${inside ? 'in' : ''}" style="left:${x(w.s)};width:calc(${x(w.e)} - ${x(w.s)})" title="${esc(w.w)} · ${fmt(w.s)}">${esc(w.w)}</span>`;
+    }).join('');
+    $('[data-edge="s"] .hk-edge-tc', el.hkClip).textContent = fmt(n.seconds);
+    $('[data-edge="e"] .hk-edge-tc', el.hkClip).textContent = fmt(n.end);
+    el.hkTrimReset.hidden = !hk.orig.has(n.id);
+  }
+  const [w0, w1] = hk.win;
+  const t = hkTime();
+  el.hkClipHead.hidden = t < w0 || t > w1;
+  el.hkClipHead.style.left = `${((t - w0) / (w1 - w0)) * 100}%`;
+}
+
+function clipTime(e) {
+  const r = el.hkClipLane.getBoundingClientRect();
+  const [w0, w1] = hk.win;
+  return w0 + clamp((e.clientX - r.left) / r.width, 0, 1) * (w1 - w0);
+}
+
+function onClipDown(e) {
+  if (e.button !== 0 || !hk.win) return;
+  const g = hk.segs[hk.i];
+  const n = g && findNote(g.id);
+  if (!n) return;
+  e.preventDefault();
+  const h = e.target.closest('.hk-h');
+  let edge = h?.dataset.edge;
+  // Попал рядом с краем, но не в ручку — всё равно берём край: ручки узкие
+  if (!edge) {
+    const r = el.hkClipLane.getBoundingClientRect();
+    const [w0, w1] = hk.win;
+    const xs = (t) => r.left + ((t - w0) / (w1 - w0)) * r.width;
+    if (Math.abs(e.clientX - xs(n.seconds)) < 10) edge = 's';
+    else if (Math.abs(e.clientX - xs(n.end)) < 10) edge = 'e';
+  }
+  if (!edge) {
+    // Клик по таймлайну — встать на этот момент куска
+    hkGo(hk.i, clipTime(e) - g.s);
+    if (hk.playing) hkPlay();
+    return;
+  }
+  if (hk.playing) hkPause();
+  if (!hk.orig.has(n.id)) hk.orig.set(n.id, [n.seconds, n.end]);
+  hk.edgeDrag = { edge, n, moved: false };
+  el.hkClipLane.setPointerCapture?.(e.pointerId);
+  el.hkClip.classList.add('dragging');
+}
+
+function onClipMove(e) {
+  const d = hk.edgeDrag;
+  if (!d) return;
+  const dur = state.dur || state.project.duration || Infinity;
+  const t = Math.round(clipTime(e) * 1000) / 1000;
+  if (d.edge === 's') d.n.seconds = clamp(t, 0, d.n.end - 0.2);
+  else d.n.end = clamp(t, d.n.seconds + 0.2, dur);
+  d.moved = true;
+  // Пока тянут — показываем кадр на краю, всё остальное пересчитаем, когда отпустят
+  if (player.mode === 'yt') hk.ytReady && hk.yt.seekTo(d.edge === 's' ? d.n.seconds : d.n.end, false);
+  else if (hk.vids.length) hkActive().currentTime = d.edge === 's' ? d.n.seconds : Math.max(0, d.n.end - 0.04);
+  renderTrim(d.n);
+}
+
+function onClipUp() {
+  const d = hk.edgeDrag;
+  if (!d) return;
+  hk.edgeDrag = null;
+  el.hkClip.classList.remove('dragging');
+  if (!d.moved) return;
+  hk.trimKey = '';
+  afterTrim();
+  auditionEdge(d.edge);
+}
+
+/** Сдвинуть границу текущего хука. Меняется сама правка — новые границы видны и на карте правок */
+function trimEdge(edge, to, { audition = true } = {}) {
+  const g = hk.segs[hk.i];
+  const n = g && findNote(g.id);
+  if (!n || n.end === null) return;
+  if (!hk.orig.has(n.id)) hk.orig.set(n.id, [n.seconds, n.end]);
+  const dur = state.dur || state.project.duration || Infinity;
+  const r3 = (x) => Math.round(x * 1000) / 1000;
+  if (edge === 's') n.seconds = r3(clamp(to, 0, n.end - 0.2));
+  else n.end = r3(clamp(to, n.seconds + 0.2, dur));
+  afterTrim();
+  if (audition) auditionEdge(edge);
+}
+
+function afterTrim() {
+  sortNotes(state.project.notes);
+  saveProject();
+  renderNotes();
+  renderTimeline();
+  renderHooks();
+  hkRebuild({ keep: true });
+}
+
+/** После сдвига сразу слышно, что вышло: для начала — стык с прошлым куском, для конца — со следующим */
+function auditionEdge(edge) {
+  clearTimeout(hk.auditionTimer);
+  if (hk.playing) hkPause();
+  // Жмут «+» несколько раз подряд — слушаем один раз, когда остановятся
+  hk.auditionTimer = setTimeout(() => {
+    const i = hk.i, g = hk.segs[i];
+    if (!g) return;
+    const lead = 1.2;
+    if (edge === 's') {
+      const prev = hk.segs[i - 1];
+      if (prev) hkGo(i - 1, Math.max(0, segLen(prev) - lead));
+      else hkGo(i, 0);
+      hkPlay();
+      hk.stopAt = g.off + Math.min(segLen(g), 1.5);
+    } else {
+      hkGo(i, Math.max(0, segLen(g) - lead));
+      hkPlay();
+      const next = hk.segs[i + 1];
+      hk.stopAt = next ? next.off + Math.min(segLen(next), 1) : hk.total;
+    }
+  }, 350);
+}
+
+function trimHere(edge) {
+  const g = hk.segs[hk.i];
+  if (!g) return;
+  // На паузе ставим и сразу слушаем; во время просмотра — просто ставим, не сбивая просмотр
+  trimEdge(edge, hkTime(), { audition: !hk.playing });
+}
+
+function trimReset() {
+  const g = hk.segs[hk.i];
+  const n = g && findNote(g.id);
+  const was = n && hk.orig.get(n.id);
+  if (!was) return;
+  [n.seconds, n.end] = was;
+  hk.orig.delete(n.id);
+  hk.win = null;
+  afterTrim();
 }
 
 function onHookBarClick(e) {
@@ -4500,10 +4690,32 @@ function bind() {
     toast(ok ? 'Нарезка скопирована: таймкоды и команда ffmpeg' : 'Не удалось скопировать', { kind: ok ? 'info' : 'error' });
   });
   el.hkClearBtn.addEventListener('click', clearCut);
+  el.hkClipLane.addEventListener('pointerdown', onClipDown);
+  el.hkClipLane.addEventListener('pointermove', onClipMove);
+  el.hkClipLane.addEventListener('pointerup', onClipUp);
+  el.hkClipLane.addEventListener('pointercancel', onClipUp);
+  el.hkClip.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    const edge = b?.closest('[data-edge]')?.dataset.edge;
+    if (!edge) return;
+    const g = hk.segs[hk.i];
+    const n = g && findNote(g.id);
+    if (!n) return;
+    if (b.dataset.act === 'here') trimHere(edge);
+    else trimEdge(edge, (edge === 's' ? n.seconds : n.end) + +b.dataset.d * TRIM_STEP * (e.shiftKey ? 5 : 1));
+  });
+  el.hkTrimReset.addEventListener('click', trimReset);
   // Пробел — смотреть/пауза, стрелки — по кускам. На кнопках пробел их не нажимает, а управляет просмотром
   el.hooksDialog.addEventListener('keydown', (e) => {
     if (e.target.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
-    const act = { Space: hkToggle, KeyK: hkToggle, ArrowLeft: hkPrev, ArrowRight: () => hkGo(Math.min(hk.i + 1, hk.segs.length - 1)) }[e.code];
+    const act = {
+      Space: hkToggle,
+      KeyK: hkToggle,
+      ArrowLeft: hkPrev,
+      ArrowRight: () => hkGo(Math.min(hk.i + 1, hk.segs.length - 1)),
+      KeyI: () => trimHere('s'),
+      KeyO: () => trimHere('e'),
+    }[e.code];
     if (!act) return;
     e.preventDefault();
     act();
