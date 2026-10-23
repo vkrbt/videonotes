@@ -1128,7 +1128,8 @@ main {
   font-weight: 400;
   line-height: 1.1;
 }
-.panel-actions { display: flex; gap: 8px; }
+.panel-head { flex-wrap: wrap; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 
 .filters {
   display: flex;
@@ -1367,6 +1368,244 @@ main {
 }
 .keys dt { white-space: nowrap; }
 .keys dd { margin: 0; color: var(--muted); }
+
+/* ---------- сборка хуков ---------- */
+
+.modal-hooks { width: min(1320px, calc(100vw - 32px)); }
+.hk-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(260px, 1fr) minmax(340px, 1.45fr);
+  gap: 18px;
+  height: min(74vh, 760px);
+}
+.hk-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.hk-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  margin-bottom: 10px;
+}
+.hk-col-head .label { margin: 0; }
+.hk-scope button { padding: 4px 9px; font-size: 12px; }
+
+.hk-pool, .hk-cut {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 4px 2px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.hk-cut { position: relative; }
+
+.hk-tc { color: var(--accent-text); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.hk-tc .dur { margin-left: 6px; color: var(--dim); font-weight: 400; }
+.hk-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.hk-text i { color: var(--dim); }
+
+/* Хук в общем списке: клик — в нарезку или обратно */
+.hk-hook {
+  --c: var(--dim);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--bg-3);
+  transition: border-color 0.12s, background 0.12s;
+}
+.hk-hook::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c);
+}
+.hk-hook:hover { border-color: var(--line); }
+.hk-hook.in { border-color: var(--accent-border); background: var(--note-active); }
+.hk-hook.now { border-color: var(--accent); }
+.hk-hook.point { opacity: 0.5; }
+.hk-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 9px 4px 9px 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.hk-pick:disabled { cursor: default; }
+.hk-pick .hk-tc { grid-column: 1; }
+.hk-pick .hk-text { grid-column: 1; }
+.hk-mark {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1.5px dashed var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.hk-hook.point .hk-mark { border: 0; font-size: 11px; font-weight: 500; }
+.hk-hook:not(.point):not(.in) .hk-pick:hover .hk-mark { border-color: var(--accent); color: var(--accent-text); }
+.hk-hook.in .hk-mark { border: 1.5px solid var(--accent); background: var(--accent); color: #fff; }
+.hk-hook.in .hk-pick:hover .hk-mark { border-color: var(--warn); background: transparent; color: var(--warn); }
+.hk-solo { align-self: center; width: 30px; height: 30px; margin-right: 6px; color: var(--dim); }
+.hk-hook.now .hk-solo { color: var(--accent-text); }
+
+/* Нарезка: порядок меняется перетаскиванием */
+.hk-item {
+  --c: var(--dim);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 9px 6px 9px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--bg-3);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.12s, box-shadow 0.12s;
+}
+.hk-item:hover { border-color: var(--line); }
+.hk-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hk-item.now { border-color: var(--accent); background: var(--note-active); }
+.hk-item.dragging {
+  z-index: 2;
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+  cursor: grabbing;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.hk-cut.sorting .hk-item:not(.dragging) { pointer-events: none; }
+.hk-grip { flex: 0 0 auto; padding-top: 1px; color: var(--dim); opacity: 0.6; }
+.hk-item:hover .hk-grip { opacity: 1; }
+.hk-num {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+  color: color-mix(in srgb, var(--c) 70%, var(--text));
+  font-size: 12px;
+  font-weight: 700;
+}
+.hk-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.hk-x { flex: 0 0 auto; width: 26px; height: 26px; opacity: 0; transition: opacity 0.12s; }
+.hk-item:hover .hk-x, .hk-item:focus-within .hk-x, .hk-item:focus .hk-x { opacity: 1; }
+.hk-cut-empty { padding: 30px 14px; border: 1.5px dashed var(--line); border-radius: var(--r); }
+.hk-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; margin-top: 4px; border-top: 1px solid var(--line-soft); }
+
+/* Просмотр склейки */
+.hk-screen {
+  position: relative;
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 160px;
+  aspect-ratio: var(--ar, 16 / 9);
+  overflow: hidden;
+  border-radius: var(--r);
+  background: #000;
+  cursor: pointer;
+}
+.hk-screen video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+}
+.hk-screen video.on { opacity: 1; }
+.hk-yt { display: none; position: absolute; inset: 0; }
+.hk-yt iframe { width: 100%; height: 100%; border: 0; pointer-events: none; }
+.hk-screen.is-yt video { display: none; }
+.hk-screen.is-yt .hk-yt { display: block; }
+.hk-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--bg-3);
+  color: var(--dim);
+  font-size: 14px;
+  text-align: center;
+}
+
+.hk-bar { display: flex; gap: 3px; height: 26px; margin-top: 12px; cursor: pointer; }
+.hk-seg {
+  --c: var(--accent);
+  position: relative;
+  flex: var(--w) 1 0;
+  min-width: 8px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c) 18%, var(--bg-3));
+}
+.hk-seg:hover { background: color-mix(in srgb, var(--c) 28%, var(--bg-3)); }
+.hk-seg i { position: absolute; inset: 0 auto 0 0; width: 0; background: color-mix(in srgb, var(--c) 70%, transparent); }
+.hk-seg span {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  padding: 0 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 26px;
+  white-space: nowrap;
+}
+
+.hk-controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.hk-controls .clock { margin-left: 4px; }
+.hk-stage:not(.playing) .i-pause, .hk-stage.playing .i-play { display: none; }
+.hk-pad { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--dim); font-size: 13px; font-weight: 700; }
+.hk-pad .field-sm { width: auto; padding: 6px 8px; font-size: 13px; }
+.hk-now { min-height: 1.4em; margin: 8px 0 0; }
+
+@media (max-width: 1000px) {
+  .hk-grid { grid-template-columns: 1fr 1fr; height: auto; }
+  .hk-stage { grid-column: 1 / -1; order: -1; }
+  .hk-screen { max-height: 46vh; }
+  .hk-pool, .hk-cut { max-height: 40vh; }
+}
+@media (max-width: 640px) {
+  .hk-grid { grid-template-columns: 1fr; }
+  .hk-x { opacity: 1; }
+}
 
 /* ---------- перетаскивание и тосты ---------- */
 

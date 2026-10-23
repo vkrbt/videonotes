@@ -214,7 +214,7 @@
 
         <p class="hint-line">
           <kbd>N</kbd> писать · <kbd>Пробел</kbd> пауза · <kbd>←</kbd><kbd>→</kbd> ±5 с · <kbd>⌘←</kbd><kbd>⌘→</kbd> ±1 с ·
-          <kbd>I</kbd><kbd>O</kbd> или протяни по карте — отрезок · <kbd>D</kbd> обвести · <kbd>1–9</kbd> тип · <kbd>⌘S</kbd> сохранить
+          <kbd>I</kbd><kbd>O</kbd> или протяни по карте — отрезок · <kbd>D</kbd> обвести · <kbd>H</kbd> собрать хуки · <kbd>1–9</kbd> тип · <kbd>⌘S</kbd> сохранить
         </p>
       </div>
 
@@ -262,6 +262,7 @@
               <button data-tab="desc" role="tab">Описание <span class="tab-count" id="descBadge"></span></button>
             </div>
             <div class="panel-actions">
+              <button class="btn btn-sm" id="hooksBtn" title="Собрать склейку из хуков и посмотреть её (H)">Собрать хуки<span class="btn-count" id="hooksCount"></span></button>
               <button class="btn btn-sm" id="copyAllBtn" title="Скопировать все правки текстом">Копировать всё</button>
             </div>
           </div>
@@ -330,6 +331,68 @@
     </div>
   </dialog>
 
+  <!-- Сборка хуков -->
+  <dialog class="modal modal-hooks" id="hooksDialog" aria-labelledby="hooksTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="hooksTitle">Сборка хуков</h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="hk-grid">
+        <section class="hk-col">
+          <div class="hk-col-head">
+            <span class="label">Все хуки</span>
+            <div class="segmented hk-scope" id="hkScope" role="group" aria-label="Что показывать">
+              <button data-scope="hooks">Хуки</button>
+              <button data-scope="ranges" title="Все правки с отрезком, не только хуки">Все отрезки</button>
+            </div>
+          </div>
+          <div class="hk-pool" id="hkPool"></div>
+        </section>
+
+        <section class="hk-col">
+          <div class="hk-col-head">
+            <span class="label">Нарезка</span>
+            <span class="muted small mono" id="hkTotal"></span>
+          </div>
+          <ol class="hk-cut" id="hkCut"></ol>
+        </section>
+
+        <section class="hk-col hk-stage">
+          <div class="hk-screen" id="hkScreen">
+            <video id="hkA" class="on" playsinline preload="auto"></video>
+            <video id="hkB" playsinline preload="auto"></video>
+            <div class="hk-yt" id="hkYt"></div>
+            <div class="hk-empty" id="hkEmpty">Накликай хуки слева — здесь будет склейка</div>
+          </div>
+          <div class="hk-bar" id="hkBar"></div>
+          <div class="hk-controls">
+            <button class="iconbtn" id="hkPrevBtn" title="К началу куска, ещё раз — к предыдущему (←)" aria-label="Предыдущий кусок">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5v14"/><path d="M18 5 9 12l9 7z"/></svg>
+            </button>
+            <button class="iconbtn iconbtn-lg" id="hkPlayBtn" title="Смотреть склейку (пробел)" aria-label="Пуск или пауза">
+              <svg class="i-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+              <svg class="i-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4.2" height="15" rx="1"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1"/></svg>
+            </button>
+            <button class="iconbtn" id="hkNextBtn" title="Следующий кусок (→)" aria-label="Следующий кусок">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 5v14"/><path d="m6 5 9 7-9 7z"/></svg>
+            </button>
+            <span class="clock mono" id="hkClock"></span>
+            <label class="hk-pad" title="Добавить немного до и после каждого куска, чтобы не срезать начало и конец слова">
+              <span>Запас</span>
+              <select class="field field-sm" id="hkPad"></select>
+            </label>
+          </div>
+          <p class="muted small hk-now" id="hkNow"></p>
+          <div class="hk-actions">
+            <button class="btn btn-sm" id="hkCopyBtn" title="Список кусков с таймкодами и команда ffmpeg — агенту или монтажёру">Копировать для агента</button>
+            <button class="btn btn-ghost btn-sm" id="hkClearBtn">Очистить</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Мои видео -->
   <dialog class="modal modal-mid" id="libraryDialog" aria-labelledby="libraryTitle">
     <div class="modal-body">
@@ -385,6 +448,7 @@
         <dt><kbd>M</kbd> / <kbd>F</kbd></dt><dd>Звук / во весь экран</dd>
         <dt><kbd>D</kbd></dt><dd>Обвести на кадре — пометка сразу прикрепляется к правке (Esc — закрыть, ⌘Z — шаг назад)</dd>
         <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
+        <dt><kbd>H</kbd></dt><dd>Собрать хуки: накликать куски, расставить и посмотреть склейку</dd>
         <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки</dd>
         <dt><kbd>Esc</kbd></dt><dd>Выйти из поля / закрыть окно</dd>
       </dl>

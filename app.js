@@ -180,6 +180,13 @@ function normShapes(list) {
   return out.length ? out : null;
 }
 
+/** Сборка хуков: какие правки и в каком порядке склеить, запас по краям кусков */
+const HOOK_PADS = [0, 0.1, 0.2, 0.3];
+function normHooks(h) {
+  const ids = Array.isArray(h?.ids) ? h.ids.filter((x) => typeof x === 'string') : [];
+  return { ids: [...new Set(ids)], pad: HOOK_PADS.includes(h?.pad) ? h.pad : 0 };
+}
+
 function keyFor(src) {
   if (src.kind === 'youtube') return `${PREFIX}youtube_${src.id}`;
   if (src.kind === 'url') return `${PREFIX}url:${src.url}`;
@@ -212,6 +219,7 @@ function readProject(key) {
     desc: typeof d.desc === 'string' ? d.desc : '',
     sources: typeof d.sources === 'string' ? d.sources : '',
     notes: sortNotes(rawNotes.map(normalizeNote).filter(Boolean)),
+    hooks: normHooks(d.hooks),
   };
 }
 
@@ -232,6 +240,7 @@ function serialize(p) {
     statusAt: p.status !== DEFAULT_STATUS ? p.statusAt : undefined,
     desc: p.desc || undefined,
     sources: p.sources || undefined,
+    hooks: p.hooks?.ids.length || p.hooks?.pad ? p.hooks : undefined,
     notes: p.notes.map((n) => ({
       id: n.id,
       seconds: n.seconds,
@@ -413,6 +422,28 @@ const el = {
   descCount: $('#descCount'),
   descCopyBtn: $('#descCopyBtn'),
   copyAllBtn: $('#copyAllBtn'),
+  hooksBtn: $('#hooksBtn'),
+  hooksCount: $('#hooksCount'),
+
+  hooksDialog: $('#hooksDialog'),
+  hkScope: $('#hkScope'),
+  hkPool: $('#hkPool'),
+  hkCut: $('#hkCut'),
+  hkTotal: $('#hkTotal'),
+  hkCopyBtn: $('#hkCopyBtn'),
+  hkClearBtn: $('#hkClearBtn'),
+  hkScreen: $('#hkScreen'),
+  hkA: $('#hkA'),
+  hkB: $('#hkB'),
+  hkYt: $('#hkYt'),
+  hkEmpty: $('#hkEmpty'),
+  hkBar: $('#hkBar'),
+  hkPrevBtn: $('#hkPrevBtn'),
+  hkPlayBtn: $('#hkPlayBtn'),
+  hkNextBtn: $('#hkNextBtn'),
+  hkClock: $('#hkClock'),
+  hkPad: $('#hkPad'),
+  hkNow: $('#hkNow'),
   filters: $('#filters'),
   notesList: $('#notesList'),
 
@@ -746,6 +777,7 @@ function blankProject(src, key) {
     desc: '',
     sources: '',
     notes: [],
+    hooks: normHooks(null),
   };
 }
 
@@ -1268,6 +1300,7 @@ function setPanelTab(tab) {
   el.notesList.hidden = !notes;
   el.filters.hidden = !notes || el.filters.dataset.empty === '1';
   el.copyAllBtn.hidden = !notes;
+  el.hooksBtn.hidden = !notes;
   if (tab === 'desc') renderDesc();
 }
 
@@ -2432,6 +2465,8 @@ function renderNotes({ flash } = {}) {
   el.notesCount.textContent = all.length ? (done ? `${done}/${all.length}` : String(all.length)) : '';
   el.notesCount.title = all.length ? `${notesWord(all.length)}${done ? `, ${done} сделано` : ''}` : '';
   el.copyAllBtn.disabled = !all.length;
+  const hooks = all.filter((n) => isHookType(n.type) && n.end !== null).length;
+  el.hooksCount.textContent = hooks || '';
   renderFilters();
 
   const list = visibleNotes();
@@ -2633,6 +2668,531 @@ function timelineTime(e) {
 }
 
 /* ============================================================
+   СБОРКА ХУКОВ: накликал куски, расставил перетаскиванием,
+   посмотрел склейку прямо здесь
+============================================================ */
+
+const isHookType = (t) => /хук|hook/i.test(t);
+const GRIP_ICON = svg('<circle cx="9" cy="6" r="1.2" fill="currentColor"/><circle cx="15" cy="6" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="18" r="1.2" fill="currentColor"/><circle cx="15" cy="18" r="1.2" fill="currentColor"/>', 16);
+const PLAY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>';
+
+const hk = {
+  scope: 'hooks',   // 'hooks' — только хуки, 'ranges' — все правки с отрезком
+  segs: [],         // [{ id, s, e, off }] — что играем; off — где кусок начинается в склейке
+  total: 0,
+  i: 0,             // текущий кусок
+  solo: null,       // id хука, который слушаем отдельно, не трогая нарезку
+  playing: false,
+  ended: false,
+  vids: [],         // два <video>: пока один играет кусок, второй уже стоит на начале следующего
+  cur: 0,
+  yt: null,
+  ytReady: false,
+  raf: 0,
+  drag: null,
+  bar: [],
+};
+
+const hookCut = (p = state.project) => (p.hooks ||= normHooks(null));
+
+/** Что сказано в куске: текст правки, а если он пустой — слова из расшифровки */
+function hookText(n) {
+  const t = n.text.trim();
+  if (t) return t;
+  if (!tr.words?.length || n.end === null) return '';
+  return tr.words.filter((w) => w.s >= n.seconds - 0.05 && w.e <= n.end + 0.05).map((w) => w.w).join(' ');
+}
+
+/** Нарезка по порядку; удалённые правки и правки без отрезка выпадают */
+function cutNotes(p = state.project) {
+  return hookCut(p).ids.map((id) => p.notes.find((n) => n.id === id)).filter((n) => n && n.end !== null);
+}
+
+function hookSegs(list, p = state.project) {
+  const pad = hookCut(p).pad;
+  const dur = state.dur || p.duration || 0;
+  let off = 0;
+  return list.map((n) => {
+    const s = Math.max(0, n.seconds - pad);
+    const e = dur ? Math.min(dur, n.end + pad) : n.end + pad;
+    const seg = { id: n.id, s, e, off };
+    off += e - s;
+    return seg;
+  });
+}
+
+const segLen = (g) => g.e - g.s;
+const secs = (x) => `${x.toFixed(1).replace('.', ',')} с`;
+
+function openHooks() {
+  const p = state.project;
+  if (!p || !player.mode) return;
+  player.pause();
+  const cut = hookCut(p);
+  cut.ids = cut.ids.filter((id) => p.notes.some((n) => n.id === id));
+  hk.scope = p.notes.some((n) => isHookType(n.type)) ? 'hooks' : 'ranges';
+  Object.assign(hk, { solo: null, i: 0, playing: false, ended: false, segs: [] });
+  el.hkPad.innerHTML = HOOK_PADS.map((v) => `<option value="${v}" ${v === cut.pad ? 'selected' : ''}>${v ? `±${v.toFixed(1).replace('.', ',')} с` : 'нет'}</option>`).join('');
+  el.hooksDialog.showModal();
+  mountHookPlayer();
+  renderHooks();
+  hkRebuild();
+}
+
+function mountHookPlayer() {
+  const p = state.project;
+  const w = p.meta?.width, h = p.meta?.height;
+  el.hkScreen.style.setProperty('--ar', w && h ? `${w} / ${h}` : p.vertical ? '9 / 16' : '16 / 9');
+  el.hkScreen.classList.toggle('is-yt', player.mode === 'yt');
+  hk.vids = [];
+  hk.cur = 0;
+  if (player.mode === 'yt') {
+    el.hkYt.innerHTML = '<div id="hkYtMount"></div>';
+    hk.ytReady = false;
+    loadYouTubeApi().then(() => {
+      if (!el.hooksDialog.open || state.project !== p) return;
+      hk.yt = new YT.Player('hkYtMount', {
+        videoId: p.ytId,
+        playerVars: { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3 },
+        events: {
+          onReady: () => {
+            hk.ytReady = true;
+            hkGo(hk.i);
+          },
+        },
+      });
+    }).catch(() => toast('Не удалось загрузить плеер YouTube', { kind: 'error' }));
+    return;
+  }
+  const src = el.video.currentSrc || el.video.src;
+  hk.vids = [el.hkA, el.hkB];
+  hk.vids.forEach((v, k) => {
+    if (el.video.crossOrigin) v.crossOrigin = el.video.crossOrigin;
+    else v.removeAttribute('crossorigin');
+    v.src = src;
+    v.muted = el.video.muted;
+    v.classList.toggle('on', k === 0);
+  });
+}
+
+function unmountHookPlayer() {
+  hkPause();
+  hk.vids.forEach((v) => {
+    v.removeAttribute('src');
+    v.load();
+  });
+  hk.vids = [];
+  if (hk.yt) {
+    try { hk.yt.destroy(); } catch { /* уже уничтожен */ }
+  }
+  hk.yt = null;
+  hk.ytReady = false;
+  el.hkYt.innerHTML = '';
+  hk.drag = null;
+}
+
+/* ---------- списки ---------- */
+
+function renderHooks() {
+  const p = state.project;
+  if (!p || !el.hooksDialog.open) return;
+  const cut = hookCut(p);
+  const order = new Map(cutNotes(p).map((n, k) => [n.id, k + 1]));
+  $$('[data-scope]', el.hkScope).forEach((b) => b.classList.toggle('on', b.dataset.scope === hk.scope));
+
+  const pool = hk.scope === 'hooks' ? p.notes.filter((n) => isHookType(n.type)) : p.notes.filter((n) => n.end !== null);
+  el.hkPool.innerHTML = pool.length ? pool.map((n) => {
+    const k = order.get(n.id);
+    const point = n.end === null;
+    const text = hookText(n);
+    return `
+      <div class="hk-hook ${k ? 'in' : ''} ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
+        <button class="hk-pick" data-act="pick" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}"`}>
+          <span class="hk-tc mono">${fmt(n.seconds)}${point ? '' : `<span class="dur">${secs(n.end - n.seconds)}</span>`}</span>
+          <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
+          <span class="hk-mark mono">${point ? 'момент' : k || '+'}</span>
+        </button>
+        ${point ? '' : `<button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>`}
+      </div>`;
+  }).join('') : `
+    <div class="notes-empty">
+      <strong>${hk.scope === 'hooks' ? 'Хуков пока нет' : 'Отрезков пока нет'}</strong>
+      Выдели фразу в тексте речи или протяни по карте правок, выбери тип «Хук» и добавь — кусок появится здесь.
+    </div>`;
+
+  const list = cutNotes(p);
+  el.hkCut.innerHTML = list.length ? list.map((n, k) => `
+    <li class="hk-item" data-id="${n.id}" tabindex="0" style="--c:${typeColor(n.type)}" title="Клик — смотреть отсюда. Тащи, чтобы поменять порядок; ⌥↑ ⌥↓ — с клавиатуры">
+      <span class="hk-grip" aria-hidden="true">${GRIP_ICON}</span>
+      <span class="hk-num mono">${k + 1}</span>
+      <span class="hk-body">
+        <span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>
+        <span class="hk-text">${esc(hookText(n)) || '<i>без текста</i>'}</span>
+      </span>
+      <button class="tool danger hk-x" data-act="remove" title="Убрать из нарезки" aria-label="Убрать из нарезки">${ICON.close}</button>
+    </li>`).join('') : `
+    <li class="notes-empty hk-cut-empty">
+      <strong>Пусто</strong>
+      Нажимай на хуки слева — они встанут сюда по порядку. Порядок меняется перетаскиванием.
+    </li>`;
+
+  const total = hookSegs(list, p).reduce((a, g) => a + segLen(g), 0);
+  el.hkTotal.textContent = list.length ? `${list.length} ${plural(list.length, ['кусок', 'куска', 'кусков'])} · ${secs(total)}` : '';
+  el.hkCopyBtn.disabled = !list.length;
+  el.hkClearBtn.disabled = !cut.ids.length;
+  paintHookNow();
+}
+
+function toggleInCut(id) {
+  const cut = hookCut();
+  const k = cut.ids.indexOf(id);
+  if (k >= 0) cut.ids.splice(k, 1);
+  else cut.ids.push(id);
+  if (hk.solo) hk.solo = null;
+  saveProject();
+  renderHooks();
+  hkRebuild();
+}
+
+function moveInCut(id, to) {
+  const ids = hookCut().ids;
+  const from = ids.indexOf(id);
+  if (from < 0 || to < 0 || to >= ids.length || from === to) return;
+  ids.splice(to, 0, ids.splice(from, 1)[0]);
+  saveProject();
+  renderHooks();
+  hkRebuild();
+  el.hkCut.querySelector(`[data-id="${id}"]`)?.focus();
+}
+
+function clearCut() {
+  const cut = hookCut();
+  if (!cut.ids.length) return;
+  const was = [...cut.ids];
+  cut.ids = [];
+  saveProject();
+  renderHooks();
+  hkRebuild();
+  toast('Нарезка очищена', {
+    action: 'Вернуть',
+    onAction: () => {
+      hookCut().ids = was;
+      saveProject();
+      renderHooks();
+      hkRebuild();
+    },
+  });
+}
+
+/* ---------- перетаскивание кусков в нарезке ---------- */
+
+function onCutDown(e) {
+  const li = e.target.closest('.hk-item');
+  if (!li || e.button !== 0 || e.target.closest('button')) return;
+  const box = el.hkCut.getBoundingClientRect();
+  hk.drag = { li, id: li.dataset.id, x0: e.clientX, y0: e.clientY, on: false, grab: e.clientY - box.top + el.hkCut.scrollTop - li.offsetTop };
+}
+
+function onCutMove(e) {
+  const d = hk.drag;
+  if (!d) return;
+  if (!d.on) {
+    if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 5) return;
+    d.on = true;
+    d.li.setPointerCapture?.(e.pointerId);
+    d.li.classList.add('dragging');
+    el.hkCut.classList.add('sorting');
+  }
+  e.preventDefault();
+  const box = el.hkCut.getBoundingClientRect();
+  // У краёв списка он сам прокручивается
+  if (e.clientY < box.top + 36) el.hkCut.scrollTop -= 10;
+  else if (e.clientY > box.bottom - 36) el.hkCut.scrollTop += 10;
+  const top = e.clientY - box.top + el.hkCut.scrollTop - d.grab;
+  const mid = top + d.li.offsetHeight / 2;
+  // Соседи уступают место: переставляем узел, а сдвиг сглаживаем (FLIP)
+  const before = new Map($$('.hk-item', el.hkCut).map((x) => [x, x.offsetTop]));
+  let moved = false;
+  for (;;) {
+    const prev = d.li.previousElementSibling, next = d.li.nextElementSibling;
+    if (prev && mid < prev.offsetTop + prev.offsetHeight / 2) { el.hkCut.insertBefore(d.li, prev); moved = true; }
+    else if (next && mid > next.offsetTop + next.offsetHeight / 2) { el.hkCut.insertBefore(next, d.li); moved = true; }
+    else break;
+  }
+  if (moved) {
+    before.forEach((y, x) => {
+      if (x === d.li) return;
+      const dy = y - x.offsetTop;
+      if (!dy) return;
+      x.style.transition = 'none';
+      x.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => { x.style.transition = ''; x.style.transform = ''; });
+    });
+    $$('.hk-item', el.hkCut).forEach((x, k) => { $('.hk-num', x).textContent = k + 1; });
+  }
+  d.li.style.transform = `translateY(${top - d.li.offsetTop}px)`;
+}
+
+function onCutUp(e) {
+  const d = hk.drag;
+  hk.drag = null;
+  if (!d) return;
+  if (!d.on) {
+    // Простой клик — смотреть склейку с этого куска
+    if (e.type === 'pointerup') playFromCut(d.id);
+    return;
+  }
+  d.li.classList.remove('dragging');
+  d.li.style.transform = '';
+  el.hkCut.classList.remove('sorting');
+  const ids = $$('.hk-item', el.hkCut).map((x) => x.dataset.id);
+  const cut = hookCut();
+  // В DOM только живые куски — потерянные id просто отбрасываем
+  if (ids.join() !== cut.ids.join()) {
+    cut.ids = ids;
+    saveProject();
+  }
+  renderHooks();
+  hkRebuild();
+}
+
+function playFromCut(id) {
+  if (hk.solo) {
+    hk.solo = null;
+    hkRebuild();
+  }
+  const i = hk.segs.findIndex((g) => g.id === id);
+  if (i < 0) return;
+  hkGo(i);
+  hkPlay();
+}
+
+/* ---------- плеер склейки ---------- */
+
+const hkActive = () => hk.vids[hk.cur];
+const hkStandby = () => hk.vids[1 - hk.cur];
+
+function hkTime() {
+  if (player.mode === 'yt') return hk.ytReady ? hk.yt.getCurrentTime() || 0 : 0;
+  return hkActive()?.currentTime || 0;
+}
+
+/** Где мы в склейке, в секундах от её начала */
+function hkPos() {
+  const g = hk.segs[hk.i];
+  if (!g) return 0;
+  if (hk.ended) return hk.total;
+  return g.off + clamp(hkTime() - g.s, 0, segLen(g));
+}
+
+function hkRebuild() {
+  if (!el.hooksDialog.open) return;
+  // Во время просмотра остаёмся на текущем куске; на паузе после правок нарезки — снова с начала
+  const was = hk.playing ? hk.segs[hk.i]?.id : null;
+  const list = hk.solo ? state.project.notes.filter((n) => n.id === hk.solo && n.end !== null) : cutNotes();
+  hk.segs = hookSegs(list);
+  const last = hk.segs.at(-1);
+  hk.total = last ? last.off + segLen(last) : 0;
+  const i = hk.segs.findIndex((g) => g.id === was);
+  if (i >= 0) {
+    hk.i = i;
+    if (hk.vids.length) hkPrime();
+  } else {
+    if (hk.playing) hkPause();
+    hk.ended = false;
+    hkGo(0);
+  }
+  renderHookBar();
+  paintHookNow();
+}
+
+/** Встать на кусок i (at — секунд от его начала) */
+function hkGo(i, at = 0) {
+  const g = hk.segs[i];
+  el.hkEmpty.hidden = !!g;
+  if (!g) return;
+  hk.i = i;
+  hk.ended = false;
+  const t = g.s + clamp(at, 0, Math.max(0, segLen(g) - 0.05));
+  if (player.mode === 'yt') {
+    if (!hk.ytReady) return;
+    hk.yt.seekTo(t, true);
+    if (!hk.playing) hk.yt.pauseVideo();
+  } else if (hk.vids.length) {
+    hkActive().currentTime = t;
+    hkPrime();
+  }
+  paintHookNow();
+}
+
+/** Второй плеер заранее встаёт на начало следующего куска — склейка идёт без паузы на перемотку */
+function hkPrime() {
+  const next = hk.segs[hk.i + 1];
+  const v = hkStandby();
+  if (!v || !next) return;
+  v.pause();
+  if (Math.abs(v.currentTime - next.s) > 0.02) v.currentTime = next.s;
+}
+
+function hkPlay() {
+  if (!hk.segs.length) return;
+  if (hk.ended) hkGo(0);
+  const g = hk.segs[hk.i];
+  const t = hkTime();
+  if (t < g.s - 0.3 || t >= g.e - 0.03) hkGo(hk.i);
+  hk.playing = true;
+  if (player.mode === 'yt') hk.ytReady && hk.yt.playVideo();
+  else hkActive()?.play().catch(() => {});
+  cancelAnimationFrame(hk.raf);
+  const step = () => {
+    if (!hk.playing) return;
+    const seg = hk.segs[hk.i];
+    if (!seg) return hkPause();
+    const v = player.mode === 'yt' ? null : hkActive();
+    if (hkTime() >= seg.e - 0.012 || v?.ended) hkNext();
+    paintHookNow();
+    hk.raf = requestAnimationFrame(step);
+  };
+  hk.raf = requestAnimationFrame(step);
+  paintHookNow();
+}
+
+function hkPause() {
+  hk.playing = false;
+  cancelAnimationFrame(hk.raf);
+  if (player.mode === 'yt') hk.ytReady && hk.yt.pauseVideo();
+  else hk.vids.forEach((v) => v.pause());
+  paintHookNow();
+}
+
+const hkToggle = () => (hk.playing ? hkPause() : hkPlay());
+
+function hkNext() {
+  const i = hk.i + 1;
+  if (i >= hk.segs.length) {
+    // Склейка кончилась: стоп. Слушали один хук — возвращаемся к нарезке
+    hkPause();
+    if (hk.solo) {
+      hk.solo = null;
+      renderHooks();
+      hkRebuild();
+      return;
+    }
+    hk.ended = true;
+    paintHookNow();
+    return;
+  }
+  hk.i = i;
+  const g = hk.segs[i];
+  if (player.mode === 'yt') {
+    hk.yt.seekTo(g.s, true);
+    return;
+  }
+  const prev = hkActive();
+  hk.cur = 1 - hk.cur;
+  const v = hkActive();
+  if (Math.abs(v.currentTime - g.s) > 0.25) v.currentTime = g.s;
+  v.play().catch(() => {});
+  v.classList.add('on');
+  prev.classList.remove('on');
+  prev.pause();
+  hkPrime();
+}
+
+function hkPrev() {
+  const g = hk.segs[hk.i];
+  if (!g) return;
+  const into = hk.ended ? Infinity : hkTime() - g.s;
+  hkGo(into > 1 || hk.i === 0 ? hk.i : hk.i - 1);
+}
+
+function solo(id) {
+  hk.solo = hk.solo === id && hk.playing ? null : id;
+  hk.segs = [];
+  hkRebuild();
+  renderHooks();
+  if (hk.solo) hkPlay();
+}
+
+function renderHookBar() {
+  el.hkBar.hidden = !hk.segs.length;
+  el.hkBar.innerHTML = hk.segs.map((g, k) => {
+    const n = findNote(g.id);
+    return `<div class="hk-seg" style="--w:${segLen(g).toFixed(3)};--c:${typeColor(n?.type)}" title="${k + 1}. ${esc(n ? hookText(n) : '').slice(0, 120)}"><i></i><span>${hk.solo ? '▶' : k + 1}</span></div>`;
+  }).join('');
+  hk.bar = $$('.hk-seg i', el.hkBar);
+}
+
+function paintHookNow() {
+  if (!el.hooksDialog.open) return;
+  const pos = hkPos();
+  el.hkClock.textContent = hk.segs.length ? `${fmt(pos, { hours: false })} / ${fmt(hk.total, { hours: false })}` : '';
+  el.hkScreen.closest('.hk-stage').classList.toggle('playing', hk.playing);
+  el.hkPlayBtn.disabled = !hk.segs.length;
+  el.hkPrevBtn.disabled = el.hkNextBtn.disabled = hk.segs.length < 2 && !hk.solo;
+  hk.bar.forEach((b, k) => {
+    const g = hk.segs[k];
+    b.style.width = `${k < hk.i ? 100 : k > hk.i ? 0 : clamp((pos - g.off) / segLen(g), 0, 1) * 100}%`;
+  });
+  const g = hk.segs[hk.i];
+  const id = g && !hk.solo ? g.id : null;
+  $$('.hk-item', el.hkCut).forEach((x) => x.classList.toggle('now', x.dataset.id === id));
+  const n = g && findNote(g.id);
+  el.hkNow.textContent = n ? `${hk.solo ? 'Отдельно' : `${hk.i + 1} из ${hk.segs.length}`} · ${fmt(g.s)}–${fmt(g.e)} в исходнике` : '';
+}
+
+function onHookBarClick(e) {
+  if (!hk.total) return;
+  // Ширина кусков на полосе пропорциональна длине, но между ними зазоры — ищем кусок по самому элементу
+  const seg = e.target.closest('.hk-seg');
+  const k = seg ? $$('.hk-seg', el.hkBar).indexOf(seg) : -1;
+  if (k < 0) return;
+  const sr = seg.getBoundingClientRect();
+  const frac = clamp((e.clientX - sr.left) / sr.width, 0, 1);
+  hkGo(k, frac * segLen(hk.segs[k]));
+  if (hk.playing) hkPlay();
+}
+
+/* ---------- текст для агента ---------- */
+
+function hookCutText(p) {
+  const list = cutNotes(p);
+  if (!list.length) return '';
+  const tc = (sec) => fmt(sec, { ms: true, hours: true });
+  const segs = hookSegs(list, p);
+  const total = segs.reduce((a, g) => a + segLen(g), 0);
+  const src = p.path || p.url || p.name;
+  const lines = [
+    `Склеить ${list.length} ${plural(list.length, ['кусок', 'куска', 'кусков'])} подряд, ${secs(total)}. Таймкоды — от начала исходника${hookCut(p).pad ? `, запас ±${hookCut(p).pad} с уже учтён` : ''}:`,
+    '',
+    ...segs.map((g, k) => {
+      const t = hookText(list[k]);
+      return `${k + 1}. ${tc(g.s)} – ${tc(g.e)} (${secs(segLen(g))})${t ? ` — ${t.replace(/\s*\n\s*/g, ' ')}` : ''}`;
+    }),
+  ];
+  if (p.kind !== 'youtube') {
+    const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+    const n3 = (x) => x.toFixed(3);
+    const inputs = segs.map((g) => `-ss ${n3(g.s)} -to ${n3(g.e)} -i ${q(src)}`).join(' \\\n  ');
+    const pads = segs.map((_, k) => `[${k}:v][${k}:a]`).join('');
+    lines.push(
+      '',
+      'Черновая склейка одной командой (перекодирует, точно по кадрам):',
+      '',
+      '```sh',
+      `ffmpeg ${inputs} \\\n  -filter_complex "${pads}concat=n=${segs.length}:v=1:a=1[v][a]" \\\n  -map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset fast -c:a aac -b:a 192k \\\n  ${q(`${safeFileName(p.title)}_hooks.mp4`)}`,
+      '```',
+    );
+  }
+  return lines.join('\n');
+}
+
+function hookCutMarkdown(p) {
+  const body = hookCutText(p);
+  return body ? [`# Хуки — «${p.title}»`, '', `Исходник: ${p.path || p.url || p.name}`, '', body, ''].join('\n') : '';
+}
+
+/* ============================================================
    ВЫГРУЗКА
 ============================================================ */
 
@@ -2814,6 +3374,7 @@ function buildAgentPrompt(p, opts) {
     '',
     items.join('\n\n'),
     '',
+    ...(hookCutText(p) ? ['## Сборка хуков', '', 'Отдельно от правок собери ролик из хуков — куски в этом порядке:', '', hookCutText(p), ''] : []),
   ].join('\n');
 }
 
@@ -3882,6 +4443,78 @@ function bind() {
   });
   el.copyAllBtn.addEventListener('click', () => copyAll());
 
+  // Сборка хуков
+  el.hooksBtn.addEventListener('click', openHooks);
+  el.hooksDialog.addEventListener('close', unmountHookPlayer);
+  el.hkScope.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-scope]');
+    if (!b) return;
+    hk.scope = b.dataset.scope;
+    renderHooks();
+  });
+  el.hkPool.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    const id = b?.closest('[data-id]')?.dataset.id;
+    if (!id) return;
+    if (b.dataset.act === 'pick') toggleInCut(id);
+    else if (b.dataset.act === 'solo') solo(id);
+  });
+  el.hkCut.addEventListener('pointerdown', onCutDown);
+  el.hkCut.addEventListener('pointermove', onCutMove);
+  el.hkCut.addEventListener('pointerup', onCutUp);
+  el.hkCut.addEventListener('pointercancel', onCutUp);
+  el.hkCut.addEventListener('click', (e) => {
+    const id = e.target.closest('[data-act="remove"]')?.closest('[data-id]')?.dataset.id;
+    if (id) toggleInCut(id);
+  });
+  el.hkCut.addEventListener('keydown', (e) => {
+    const li = e.target.closest('.hk-item');
+    if (!li || e.target !== li) return;
+    const ids = hookCut().ids;
+    if (e.altKey && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+      e.preventDefault();
+      e.stopPropagation();
+      moveInCut(li.dataset.id, ids.indexOf(li.dataset.id) + (e.code === 'ArrowUp' ? -1 : 1));
+    } else if (e.code === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      playFromCut(li.dataset.id);
+    } else if (e.code === 'Delete' || e.code === 'Backspace') {
+      e.preventDefault();
+      toggleInCut(li.dataset.id);
+    }
+  });
+  el.hkPlayBtn.addEventListener('click', hkToggle);
+  el.hkPrevBtn.addEventListener('click', hkPrev);
+  el.hkNextBtn.addEventListener('click', () => hkGo(Math.min(hk.i + 1, hk.segs.length - 1)));
+  el.hkBar.addEventListener('click', onHookBarClick);
+  el.hkScreen.addEventListener('click', hkToggle);
+  el.hkPad.addEventListener('change', () => {
+    hookCut().pad = +el.hkPad.value;
+    saveProject();
+    renderHooks();
+    hkRebuild();
+  });
+  el.hkCopyBtn.addEventListener('click', async () => {
+    const ok = await copyText(hookCutMarkdown(state.project));
+    toast(ok ? 'Нарезка скопирована: таймкоды и команда ffmpeg' : 'Не удалось скопировать', { kind: ok ? 'info' : 'error' });
+  });
+  el.hkClearBtn.addEventListener('click', clearCut);
+  // Пробел — смотреть/пауза, стрелки — по кускам. На кнопках пробел их не нажимает, а управляет просмотром
+  el.hooksDialog.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const act = { Space: hkToggle, KeyK: hkToggle, ArrowLeft: hkPrev, ArrowRight: () => hkGo(Math.min(hk.i + 1, hk.segs.length - 1)) }[e.code];
+    if (!act) return;
+    e.preventDefault();
+    act();
+  });
+  el.hooksDialog.addEventListener('keyup', (e) => {
+    if (e.code === 'Space' && e.target.closest('button')) e.preventDefault();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && hk.playing) hkPause();
+  });
+
   // Описание к публикации
   el.panelTabs.addEventListener('click', (e) => {
     const b = e.target.closest('[data-tab]');
@@ -4130,6 +4763,7 @@ function onHotkey(e) {
     KeyE: () => openExport(),
     KeyD: () => openDraw(),
     KeyR: () => toggleReading(),
+    KeyH: () => openHooks(),
     KeyM: () => player.toggleMute(),
     KeyF: () => toggleFullscreen(),
     '?': () => el.hotkeysDialog.showModal(),
