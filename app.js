@@ -3728,6 +3728,12 @@ function hookCutText(p) {
   return lines.join('\n');
 }
 
+/** Собранная нарезка для отчёта: куски в порядке склейки, с запасом по краям */
+function reportHooks(p) {
+  const cut = cutNotes(p);
+  return hookSegs(cut, p).map((g, k) => ({ n: cut[k], s: g.s, e: g.e }));
+}
+
 function hookCutMarkdown(p) {
   const body = hookCutText(p);
   return body ? [`# Хуки — «${p.title}»`, '', `Исходник: ${p.path || p.url || p.name}`, '', body, ''].join('\n') : '';
@@ -3763,7 +3769,7 @@ function buildExport(p, format, opts) {
     });
     const header = opts.header ? [p.title, ...(p.url ? [p.url] : []), ''] : [];
     const cut = hookCutText(p);
-    return [...header, ...lines, ...(cut ? ['', '', 'СБОРКА ХУКОВ', '', cut] : [])].join('\n');
+    return [...header, ...(cut ? ['СБОРКА ХУКОВ', '', cut, '', '', 'ПРАВКИ', ''] : []), ...lines].join('\n');
   }
 
   if (format === 'md') {
@@ -3775,7 +3781,7 @@ function buildExport(p, format, opts) {
     });
     const header = opts.header ? [`# ${p.title}`, '', ...(p.url ? [`Видео: ${p.url}`, ''] : [])] : [];
     const cut = hookCutText(p);
-    return [...header, ...lines, ...(cut ? ['', '## Сборка хуков', '', cut] : [])].join('\n');
+    return [...header, ...(cut ? ['## Сборка хуков', '', cut, '', '## Правки', ''] : []), ...lines].join('\n');
   }
 
   if (format === 'csv') {
@@ -3809,14 +3815,14 @@ function buildExport(p, format, opts) {
       ...(n.shapes ? { marks: n.shapes, marksText: n.shapes.map(describeShape) } : {}),
       ...(n.shot ? { shot: shotName(n, i) } : {}),
     })),
-    ...(cutNotes(p).length ? {
-      hookCut: hookSegs(cutNotes(p), p).map((g, k) => ({
+    ...(reportHooks(p).length ? {
+      hookCut: reportHooks(p).map((r, k) => ({
         order: k + 1,
-        start: fmt(g.s, { ms: true, hours: true }),
-        end: fmt(g.e, { ms: true, hours: true }),
-        startSeconds: +g.s.toFixed(3),
-        endSeconds: +g.e.toFixed(3),
-        text: hookText(cutNotes(p)[k]),
+        start: fmt(r.s, { ms: true, hours: true }),
+        end: fmt(r.e, { ms: true, hours: true }),
+        startSeconds: +r.s.toFixed(3),
+        endSeconds: +r.e.toFixed(3),
+        text: hookText(r.n),
       })),
     } : {}),
   }, null, 2);
@@ -3963,27 +3969,27 @@ h1{margin:6px 0 12px;font-size:22px;line-height:1.2}
 .marks{margin:8px 0 0;padding-left:18px;color:#888898;font-size:13px}
 footer{margin-top:30px;color:#888898;font-size:12.5px}
 .desc{margin:0 0 22px;padding:16px 18px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#161622}
-.hooks{margin:26px 0 0}.hooks h2{margin:0 0 6px;font-size:17px}.hooks ol{margin:0;padding:0;list-style:none}
+.hooks{margin:0 0 26px}.hooks h2,h2.sec{margin:0 0 6px;font-size:17px}.hooks ol{margin:0;padding:0;list-style:none}
 .hooks li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 6px;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-left:4px solid var(--c,#888);border-radius:10px;background:#161622;break-inside:avoid}
 .hooks li p{flex-basis:100%;margin:0;white-space:pre-wrap}
 .desc h2{margin:0 0 8px;font-size:15px;color:#c8c8d8}.desc p{margin:0;white-space:pre-wrap}.desc ul{margin:10px 0 0;padding-left:18px;font-size:13.5px}.desc a{color:#8ea0ff;word-break:break-all}
-@media (prefers-color-scheme:light){.flt{background:#f5f5fa;border-bottom-color:rgba(0,0,0,.1)}.flt label,.flt .sep{border-color:rgba(0,0,0,.14)}.flt .sep{background:rgba(0,0,0,.14)}.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.hooks li{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
+@media (prefers-color-scheme:light){.flt{background:#f5f5fa;border-bottom-color:rgba(0,0,0,.1)}.flt label,.flt .sep{border-color:rgba(0,0,0,.14)}.flt .sep{background:rgba(0,0,0,.14)}.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.hooks li{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.how{color:#4a4a5e}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
 @media print{.flt,.tk{display:none}body{background:#fff;color:#111}.facts,.item,.hooks li{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
 `;
 
-/** Раздел отчёта «Сборка хуков»: куски по порядку склейки, с точными таймкодами */
+/** Отдельный раздел отчёта «Сборка хуков» — сразу после шапки, до списка правок: куски по порядку склейки, с точными таймкодами */
 function reportHooksHTML(p, hours) {
-  const list = cutNotes(p);
-  if (!list.length) return '';
+  const rows = reportHooks(p);
+  if (!rows.length) return '';
   const tc = (sec) => fmt(sec, { ms: true, hours });
   const pad = hookCut(p).pad;
-  const rows = hookSegs(list, p).map((g, k) => {
-    const t = hookText(list[k]);
-    return `<li style="--c:${hookColor(list[k])}"><span class="num">${k + 1}</span><span class="tc">${tc(g.s)} – ${tc(g.e)}</span><span class="dur">${segLen(g).toFixed(1)} с</span>${t ? `<p>${esc(t)}</p>` : ''}</li>`;
+  const items = rows.map((r, k) => {
+    const t = hookText(r.n);
+    return `<li style="--c:${hookColor(r.n)}"><span class="num">${k + 1}</span><span class="tc">${tc(r.s)} – ${tc(r.e)}</span><span class="dur">${(r.e - r.s).toFixed(1)} с</span>${t ? `<p>${esc(t)}</p>` : ''}</li>`;
   }).join('');
   return `<section class="hooks"><h2>Сборка хуков · ${esc(cutSummary(p))}</h2>
 <p class="how">Отдельный ролик: склеить куски подряд в этом порядке. Таймкоды — от начала исходника${pad ? `, запас ±${String(pad).replace('.', ',')} с уже учтён` : ''}.</p>
-<ol>${rows}</ol></section>`;
+<ol>${items}</ol></section>`;
 }
 
 /** Отчёт для монтажёра. img(n, i) — откуда брать кадр: data URL (один файл) или shots/… (архив) */
@@ -4024,10 +4030,11 @@ ${n.shapes && !src ? `<ul class="marks">${n.shapes.map((sh) => `<li>${esc(descri
 <h1>${esc(p.title)}</h1>
 <dl class="facts">${facts}<dt>Правок</dt><dd>${notes.length}</dd></dl>
 ${p.desc || sourceList(p).length ? `<section class="desc"><h2>Описание к публикации</h2>${p.desc ? `<p>${esc(p.desc)}</p>` : ''}${sourceList(p).length ? `<ul>${sourceList(p).map((x) => `<li>${/^https?:\/\//.test(x) ? `<a href="${esc(x)}" target="_blank">${esc(x)}</a>` : esc(x)}</li>`).join('')}</ul>` : ''}</section>` : ''}
+${reportHooksHTML(p, hours)}
+${reportHooks(p).length ? `<h2 class="sec">Правки · ${notes.length}</h2>` : ''}
 <p class="how">Таймкоды — от начала файла. Цветная полоска слева — тип правки${notes.some((n) => n.shot) ? ', на кадрах обведено место, о котором речь' : ''}. Галочкой отмечай сделанное — отметки запомнятся в этом браузере.</p>
 ${filterBar}
 ${items}
-${reportHooksHTML(p, hours)}
 <footer>Собрано ${esc(date)} в Video Notes</footer>
 </main>
 <script>
