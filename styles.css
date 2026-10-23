@@ -1418,7 +1418,7 @@ main {
   --c: var(--dim);
   position: relative;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   margin-bottom: 6px;
   border: 1px solid var(--line-soft);
   border-radius: var(--r);
@@ -1439,13 +1439,16 @@ main {
 .hk-hook.in { border-color: var(--accent-border); background: var(--note-active); }
 .hk-hook.now { border-color: var(--accent); }
 .hk-hook.point { opacity: 0.5; }
+.hk-row { display: flex; align-items: center; }
+.hk-hook > .hk-top { padding: 8px 10px 0 13px; cursor: pointer; }
+.hk-hook.point > .hk-top { cursor: default; }
 .hk-pick {
   display: flex;
   flex-direction: column;
   gap: 3px;
   flex: 1;
   min-width: 0;
-  padding: 9px 4px 9px 13px;
+  padding: 3px 4px 9px 13px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1522,6 +1525,43 @@ main {
   font-weight: 700;
 }
 .hk-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+
+/* Цвет персоны: кружки вверху карточки, выбранный — с обводкой; у помеченной карточки полоска толще */
+.hk-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.hk-colors { display: inline-flex; gap: 2px; flex: none; opacity: 0.45; transition: opacity 0.12s; }
+.hk-hook:hover .hk-colors, .hk-item:hover .hk-colors, .hk-item:focus-within .hk-colors, .hk-colors:focus-within, .colored .hk-colors { opacity: 1; }
+.hk-sw {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.hk-sw::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--sw);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.hk-sw:hover::after { transform: scale(1.25); }
+.hk-sw.on::after { inset: 4px; box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--sw); }
+.hk-sw:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.hk-hook.colored::before { width: 5px; }
+.hk-item.colored::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 5px;
+  border-radius: 0 3px 3px 0;
+  background: var(--c);
+}
 .hk-x { flex: 0 0 auto; width: 26px; height: 26px; opacity: 0; transition: opacity 0.12s; }
 .hk-item:hover .hk-x, .hk-item:focus-within .hk-x, .hk-item:focus .hk-x { opacity: 1; }
 .hk-cut-empty { padding: 30px 14px; border: 1.5px dashed var(--line); border-radius: var(--r); }

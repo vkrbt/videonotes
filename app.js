@@ -156,6 +156,7 @@ function normalizeNote(n) {
       createdAt: n.createdAt || 0,
       shapes: normShapes(n.shapes),
       shot: !!n.shot,
+      color: normColor(n.color),
     };
   }
   const s = +n.seconds || 0;
@@ -169,8 +170,18 @@ function normalizeNote(n) {
     createdAt: n.createdAt || 0,
     shapes: normShapes(n.shapes),
     shot: !!n.shot,
+    color: normColor(n.color),
   };
 }
+
+/** Цвет персоны у хука: в сборке хуков видно, кто говорит. Оранжевый не берём — он у типа «Хук» */
+const PERSON_COLORS = [
+  { c: '#4d6bff', name: 'синий' },
+  { c: '#f472b6', name: 'розовый' },
+  { c: '#35d07f', name: 'зелёный' },
+  { c: '#c084fc', name: 'фиолетовый' },
+];
+const normColor = (c) => (PERSON_COLORS.some((x) => x.c === c) ? c : null);
 
 const SHAPE_KINDS = ['ellipse', 'rect', 'arrow', 'pen'];
 function normShapes(list) {
@@ -251,6 +262,7 @@ function serialize(p) {
       createdAt: n.createdAt || undefined,
       shapes: n.shapes || undefined,
       shot: n.shot || undefined,
+      color: n.color || undefined,
     })),
   };
 }
@@ -2710,6 +2722,25 @@ const TRIM_STEP = 0.05;
 
 const hookCut = (p = state.project) => (p.hooks ||= normHooks(null));
 
+const hookColor = (n) => n?.color || typeColor(n?.type);
+
+/** Кружки цвета вверху карточки: клик — пометить персону, клик по выбранному — снять */
+function swatchesHTML(n) {
+  return `<span class="hk-colors" role="group" aria-label="Цвет — кто говорит">${PERSON_COLORS.map((x) => `
+    <button class="hk-sw ${n.color === x.c ? 'on' : ''}" data-act="color" data-color="${x.c}" style="--sw:${x.c}"
+      title="${n.color === x.c ? 'Снять цвет' : `Пометить: ${x.name}`}" aria-label="${x.name}" aria-pressed="${n.color === x.c}"></button>`).join('')}</span>`;
+}
+
+function setHookColor(id, c) {
+  const n = findNote(id);
+  if (!n) return;
+  n.color = n.color === c ? null : c;
+  saveProject();
+  renderHooks();
+  renderHookBar();
+  paintHookNow();
+}
+
 /** Что сказано в куске: текст правки, а если он пустой — слова из расшифровки */
 function hookText(n) {
   const t = n.text.trim();
@@ -2823,14 +2854,19 @@ function renderHooks() {
     const point = n.end === null;
     const text = hookText(n);
     return `
-      <div class="hk-hook ${k ? 'in' : ''} ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''}" data-id="${n.id}" style="--c:${typeColor(n.type)}">
-        <button class="hk-pick" data-act="pick" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}"`}>
+      <div class="hk-hook ${k ? 'in' : ''} ${point ? 'point' : ''} ${hk.solo === n.id ? 'now' : ''} ${n.color ? 'colored' : ''}" data-id="${n.id}" style="--c:${hookColor(n)}">
+        <div class="hk-top" ${point ? '' : 'data-act="pick"'}>
           <span class="hk-tc mono">${fmt(n.seconds)}${point ? '' : `<span class="dur">${secs(n.end - n.seconds)}</span>`}</span>
-          <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
-        </button>
-        ${point ? '<span class="hk-mark mono">момент</span>' : `
-        <button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>
-        <button class="hk-mark mono" data-act="pick" title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}">${k || '+'}</button>`}
+          ${swatchesHTML(n)}
+        </div>
+        <div class="hk-row">
+          <button class="hk-pick" data-act="pick" ${point ? 'disabled title="Это момент, а не отрезок. Выдели фразу в тексте речи или протяни по карте правок"' : `title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}"`}>
+            <span class="hk-text">${text ? esc(text) : '<i>без текста</i>'}</span>
+          </button>
+          ${point ? '<span class="hk-mark mono">момент</span>' : `
+          <button class="tool hk-solo" data-act="solo" title="Послушать отдельно" aria-label="Послушать отдельно">${PLAY_ICON}</button>
+          <button class="hk-mark mono" data-act="pick" title="${k ? 'Убрать из нарезки' : 'Добавить в нарезку'}">${k || '+'}</button>`}
+        </div>
       </div>`;
   }).join('') : `
     <div class="notes-empty">
@@ -2840,11 +2876,11 @@ function renderHooks() {
 
   const list = cutNotes(p);
   el.hkCut.innerHTML = list.length ? list.map((n, k) => `
-    <li class="hk-item" data-id="${n.id}" tabindex="0" style="--c:${typeColor(n.type)}" title="Клик — смотреть отсюда. Тащи, чтобы поменять порядок; ⌥↑ ⌥↓ — с клавиатуры">
+    <li class="hk-item ${n.color ? 'colored' : ''}" data-id="${n.id}" tabindex="0" style="--c:${hookColor(n)}" title="Клик — смотреть отсюда. Тащи, чтобы поменять порядок; ⌥↑ ⌥↓ — с клавиатуры">
       <span class="hk-grip" aria-hidden="true">${GRIP_ICON}</span>
       <span class="hk-num mono">${k + 1}</span>
       <span class="hk-body">
-        <span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>
+        <span class="hk-top"><span class="hk-tc mono">${fmt(n.seconds)}–${fmt(n.end)}<span class="dur">${secs(n.end - n.seconds)}</span></span>${swatchesHTML(n)}</span>
         <span class="hk-text">${esc(hookText(n)) || '<i>без текста</i>'}</span>
       </span>
       <button class="tool danger hk-x" data-act="remove" title="Убрать из нарезки" aria-label="Убрать из нарезки">${ICON.close}</button>
@@ -3141,7 +3177,7 @@ function renderHookBar() {
   el.hkBar.hidden = !hk.segs.length;
   el.hkBar.innerHTML = hk.segs.map((g, k) => {
     const n = findNote(g.id);
-    return `<div class="hk-seg" style="--w:${segLen(g).toFixed(3)};--c:${typeColor(n?.type)}" title="${k + 1}. ${esc(n ? hookText(n) : '').slice(0, 120)}"><i></i><span>${hk.solo ? '▶' : k + 1}</span></div>`;
+    return `<div class="hk-seg" style="--w:${segLen(g).toFixed(3)};--c:${hookColor(n)}" title="${k + 1}. ${esc(n ? hookText(n) : '').slice(0, 120)}"><i></i><span>${hk.solo ? '▶' : k + 1}</span></div>`;
   }).join('');
   hk.bar = $$('.hk-seg i', el.hkBar);
 }
@@ -4648,12 +4684,18 @@ function bind() {
     if (!id) return;
     if (b.dataset.act === 'pick') toggleInCut(id);
     else if (b.dataset.act === 'solo') solo(id);
+    else if (b.dataset.act === 'color') setHookColor(id, b.dataset.color);
   });
   el.hkCut.addEventListener('pointerdown', onCutDown);
   el.hkCut.addEventListener('pointermove', onCutMove);
   el.hkCut.addEventListener('pointerup', onCutUp);
   el.hkCut.addEventListener('pointercancel', onCutUp);
   el.hkCut.addEventListener('click', (e) => {
+    const sw = e.target.closest('[data-act="color"]');
+    if (sw) {
+      setHookColor(sw.closest('[data-id]').dataset.id, sw.dataset.color);
+      return;
+    }
     const id = e.target.closest('[data-act="remove"]')?.closest('[data-id]')?.dataset.id;
     if (id) toggleInCut(id);
   });
