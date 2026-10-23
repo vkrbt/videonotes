@@ -41,6 +41,10 @@
         <svg class="theme-icon theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
       <button class="btn btn-ghost btn-sm" id="hotkeysBtn" title="Горячие клавиши (?)" aria-label="Горячие клавиши"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/></svg></button>
+      <span class="hist-btns" id="histBtns" hidden>
+        <button class="btn btn-ghost btn-sm iconbtn-hist" data-hist="undo" title="Отменить (⌘Z)" aria-label="Отменить" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+        <button class="btn btn-ghost btn-sm iconbtn-hist" data-hist="redo" title="Повторить (⇧⌘Z)" aria-label="Повторить" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+      </span>
       <button class="btn btn-sm" id="importBtn" type="button" title="Загрузить правки из архива .zip или notes.json, который выгрузили из Video Notes">Импорт</button>
       <input type="file" id="importInput" accept=".zip,.json,application/zip,application/json" hidden>
       <button class="btn btn-sm" id="libraryBtn">Мои видео<span class="btn-count" id="libraryCount"></span></button>
@@ -262,7 +266,6 @@
               <button data-tab="desc" role="tab">Описание <span class="tab-count" id="descBadge"></span></button>
             </div>
             <div class="panel-actions">
-              <button class="btn btn-sm" id="hooksBtn" title="Собрать склейку из хуков и посмотреть её (H)">Собрать хуки<span class="btn-count" id="hooksCount"></span></button>
               <button class="btn btn-sm" id="copyAllBtn" title="Скопировать все правки текстом">Копировать всё</button>
             </div>
           </div>
@@ -305,6 +308,14 @@
           <div class="label">Какие правки</div>
           <div class="chips" id="exportTypes"></div>
 
+          <div id="exportHooksRow" hidden>
+            <div class="label">Сборка хуков</div>
+            <div class="export-hooks">
+              <span class="small" id="exportHooksText"></span>
+              <button class="link-btn small" id="exportHooksBtn"></button>
+            </div>
+          </div>
+
           <div class="label">Настройки</div>
           <label class="check"><input type="checkbox" id="optShowType"> Показывать тип</label>
           <label class="check"><input type="checkbox" id="optHideDone"> Без выполненных</label>
@@ -336,6 +347,10 @@
     <div class="modal-body">
       <div class="modal-head">
         <h2 class="modal-title" id="hooksTitle">Сборка хуков</h2>
+        <span class="hist-btns hist-in-modal">
+        <button class="btn btn-ghost btn-sm iconbtn-hist" data-hist="undo" title="Отменить (⌘Z)" aria-label="Отменить" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+        <button class="btn btn-ghost btn-sm iconbtn-hist" data-hist="redo" title="Повторить (⇧⌘Z)" aria-label="Повторить" disabled><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+      </span>
         <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="hk-grid">
@@ -410,9 +425,27 @@
           <div class="hk-actions">
             <button class="btn btn-sm" id="hkCopyBtn" title="Список кусков с таймкодами и команда ffmpeg — агенту или монтажёру">Копировать для агента</button>
             <button class="btn btn-ghost btn-sm" id="hkClearBtn">Очистить</button>
+            <button class="btn btn-primary btn-sm hk-next" id="hkNextStepBtn" title="Нарезка войдёт в отчёт отдельным разделом (⌘S)">Дальше — в отчёт</button>
           </div>
         </section>
       </div>
+    </div>
+  </dialog>
+
+  <!-- Перед сохранением: сначала собрать хуки или сразу в отчёт -->
+  <dialog class="modal modal-narrow" id="hooksAskDialog" aria-labelledby="hooksAskTitle">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 class="modal-title" id="hooksAskTitle"></h2>
+        <button class="iconbtn" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <p class="ask-text" id="hooksAskText"></p>
+      <ol class="ask-steps" aria-label="Шаги">
+        <li class="on">Правки</li>
+        <li id="hooksAskStep">Сборка хуков</li>
+        <li>Отчёт</li>
+      </ol>
+      <div class="ask-actions" id="hooksAskActions"></div>
     </div>
   </dialog>
 
@@ -473,7 +506,8 @@
         <dt>Протянуть по карте</dt><dd>Выделить кусок видео</dd>
         <dt><kbd>H</kbd></dt><dd>Собрать хуки: накликать куски, расставить и посмотреть склейку</dd>
         <dt>В сборке <kbd>I</kbd> / <kbd>O</kbd></dt><dd>Начало / конец текущего куска — на текущий момент</dd>
-        <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки</dd>
+        <dt><kbd>⌘S</kbd> <kbd>E</kbd></dt><dd>Сохранить правки: если есть хуки — сначала предложит собрать их, потом отчёт</dd>
+        <dt><kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd></dt><dd>Отменить / повторить последний шаг — до 100 шагов назад</dd>
         <dt><kbd>Esc</kbd></dt><dd>Выйти из поля / закрыть окно</dd>
       </dl>
     </div>

@@ -2051,3 +2051,38 @@ main {
 .captions.has-text { height: auto; display: flex; flex-direction: column; }
 .captions.has-text .cap-view { height: calc(var(--cap-lh) * 3); }
 .captions.has-text .cap-start { order: 2; position: static; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-soft); }
+
+/* ---------- отменить / повторить ---------- */
+.hist-btns { display: inline-flex; gap: 4px; }
+.iconbtn-hist { display: inline-grid; place-items: center; padding: 8px 9px; }
+.hist-in-modal { margin: 0 10px 0 auto; }
+
+/* ---------- сохранение по шагам: правки → хуки → отчёт ---------- */
+.ask-text { margin: 0 0 16px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.ask-text b { color: var(--text); }
+.ask-steps { display: flex; align-items: center; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; counter-reset: step; }
+.ask-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  counter-increment: step;
+}
+.ask-steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+  font-size: 12px;
+}
+.ask-steps li:not(:last-child)::after { content: ''; width: 18px; height: 1.5px; margin-left: 2px; background: var(--line); }
+.ask-steps li.on, .ask-steps li.done { color: var(--text); }
+.ask-steps li.on::before, .ask-steps li.done::before { border-color: var(--accent); background: var(--accent); color: #fff; }
+.ask-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.export-hooks { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 18px; }
+.hk-actions .hk-next { margin-left: auto; }

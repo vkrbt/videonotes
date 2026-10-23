@@ -270,10 +270,97 @@ function sortNotes(notes) {
   return notes.sort((a, b) => a.seconds - b.seconds || (a.createdAt || 0) - (b.createdAt || 0));
 }
 
+/* ---------- отменить / повторить ----------
+   Каждое сохранение проекта — шаг. Храним снимки содержимого (без места просмотра и времени правки),
+   до 100 шагов назад; новый шаг после отмены стирает «повторить» */
+
+const HIST_MAX = 100;
+const hist = { key: null, past: [], future: [], cur: null, applying: false };
+
+function histSnap(p) {
+  const { position, updatedAt, ...rest } = serialize(p);
+  return JSON.stringify(rest);
+}
+
+function histReset(p) {
+  Object.assign(hist, { key: p?.key ?? null, past: [], future: [], cur: p ? histSnap(p) : null });
+  renderHistBtns();
+}
+
+function histRecord(p) {
+  if (hist.applying) return;
+  if (hist.key !== p.key) return histReset(p);
+  const snap = histSnap(p);
+  if (snap === hist.cur) return;
+  hist.past.push(hist.cur);
+  if (hist.past.length > HIST_MAX) hist.past.shift();
+  hist.future = [];
+  hist.cur = snap;
+  renderHistBtns();
+}
+
+function renderHistBtns() {
+  $$('[data-hist="undo"]').forEach((b) => { b.disabled = !hist.past.length; });
+  $$('[data-hist="redo"]').forEach((b) => { b.disabled = !hist.future.length; });
+}
+
+function histStep(dir) {
+  const p = state.project;
+  if (!p || hist.key !== p.key) return;
+  // Недописанный текст правки сначала сохраняем — он станет последним шагом
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    saveProject();
+  }
+  const from = dir < 0 ? hist.past : hist.future;
+  const to = dir < 0 ? hist.future : hist.past;
+  if (!from.length) {
+    toast(dir < 0 ? 'Отменять нечего' : 'Повторять нечего');
+    return;
+  }
+  to.push(hist.cur);
+  hist.cur = from.pop();
+  histApply(hist.cur);
+  renderHistBtns();
+  toast(dir < 0 ? `Отменено · осталось шагов: ${hist.past.length}` : 'Повторено', { timeout: 1600 });
+}
+
+/** Вернуть проект к снимку: пишем его в хранилище и перечитываем, как при открытии */
+function histApply(snap) {
+  const p = state.project;
+  store.set(p.key, { ...JSON.parse(snap), position: p.position ?? undefined, updatedAt: Date.now() });
+  const r = readProject(p.key);
+  if (!r) return;
+  const { title, path, status, statusAt, desc, sources, notes, hooks } = r;
+  Object.assign(p, { title, path, status, statusAt, desc, sources, notes, hooks, updatedAt: Date.now() });
+  hist.applying = true;
+  try {
+    hk.orig.clear();
+    if (hk.solo && !findNote(hk.solo)) hk.solo = null;
+    renderSource();
+    renderNotes();
+    renderTimeline();
+    renderDesc();
+    renderLibraryCount();
+    if (el.hooksDialog.open) {
+      renderHooks();
+      hkRebuild({ keep: true });
+    }
+    if (el.exportDialog.open) {
+      renderExportHooks();
+      updateExportPreview();
+    }
+  } finally {
+    hist.applying = false;
+  }
+}
+
 /** Пустые проекты не пишем — чтобы «Мои видео» не забивались просмотренным без правок */
 function saveProject({ touch = true } = {}) {
   const p = state.project;
   if (!p) return;
+  histRecord(p);
   if (!p.notes.length && p.status === DEFAULT_STATUS && !p.desc && !p.sources && localStorage.getItem(p.key) === null) return;
   if (touch) p.updatedAt = Date.now();
   store.set(p.key, serialize(p));
@@ -433,8 +520,16 @@ const el = {
   descCount: $('#descCount'),
   descCopyBtn: $('#descCopyBtn'),
   copyAllBtn: $('#copyAllBtn'),
-  hooksBtn: $('#hooksBtn'),
-  hooksCount: $('#hooksCount'),
+  histBtns: $('#histBtns'),
+  hooksAskDialog: $('#hooksAskDialog'),
+  hooksAskTitle: $('#hooksAskTitle'),
+  hooksAskText: $('#hooksAskText'),
+  hooksAskStep: $('#hooksAskStep'),
+  hooksAskActions: $('#hooksAskActions'),
+  hkNextStepBtn: $('#hkNextStepBtn'),
+  exportHooksRow: $('#exportHooksRow'),
+  exportHooksText: $('#exportHooksText'),
+  exportHooksBtn: $('#exportHooksBtn'),
 
   hooksDialog: $('#hooksDialog'),
   hkScope: $('#hkScope'),
@@ -1318,7 +1413,6 @@ function setPanelTab(tab) {
   el.notesList.hidden = !notes;
   el.filters.hidden = !notes || el.filters.dataset.empty === '1';
   el.copyAllBtn.hidden = !notes;
-  el.hooksBtn.hidden = !notes;
   if (tab === 'desc') renderDesc();
 }
 
@@ -2041,6 +2135,7 @@ function noteFromWords() {
 
 function startProject(p) {
   state.project = p;
+  histReset(p);
   state.dur = p.duration || 0;
   state.filter = 'all';
   state.activeId = null;
@@ -2064,6 +2159,7 @@ function showWorkspace() {
   el.workspace.hidden = false;
   el.changeSourceBtn.hidden = false;
   el.exportBtn.hidden = false;
+  el.histBtns.hidden = false;
   el.attachHint.hidden = true;
 }
 
@@ -2072,6 +2168,7 @@ function showStart({ hint } = {}) {
   el.startScreen.hidden = false;
   el.workspace.hidden = true;
   el.exportBtn.hidden = true;
+  el.histBtns.hidden = true;
   el.changeSourceBtn.hidden = true;
   el.sourceInfo.hidden = true;
   el.backToVideoBtn.hidden = !state.project;
@@ -2483,8 +2580,6 @@ function renderNotes({ flash } = {}) {
   el.notesCount.textContent = all.length ? (done ? `${done}/${all.length}` : String(all.length)) : '';
   el.notesCount.title = all.length ? `${notesWord(all.length)}${done ? `, ${done} сделано` : ''}` : '';
   el.copyAllBtn.disabled = !all.length;
-  const hooks = all.filter((n) => isHookType(n.type) && n.end !== null).length;
-  el.hooksCount.textContent = hooks || '';
   renderFilters();
 
   const list = visibleNotes();
@@ -2776,6 +2871,8 @@ function duplicateHook(id) {
   const n = findNote(id);
   if (!n) return;
   const copy = { ...structuredClone(n), id: uid(), createdAt: Date.now() };
+  // Кадр хранится по id правки — у копии свой
+  if (n.shot) shots.get(n.id).then((url) => url && shots.put(copy.id, url));
   p.notes.push(copy);
   sortNotes(p.notes);
   const ids = hookCut(p).ids;
@@ -2846,7 +2943,7 @@ function cutNotes(p = state.project) {
 
 function hookSegs(list, p = state.project) {
   const pad = hookCut(p).pad;
-  const dur = state.dur || p.duration || 0;
+  const dur = (p === state.project && state.dur) || p.duration || 0;
   let off = 0;
   return list.map((n) => {
     const s = Math.max(0, n.seconds - pad);
@@ -3601,7 +3698,8 @@ function buildExport(p, format, opts) {
       return `${head} ${body}`.trimEnd() + (links ? `\n    ${ytLink(p, n.seconds)}` : '');
     });
     const header = opts.header ? [p.title, ...(p.url ? [p.url] : []), ''] : [];
-    return [...header, ...lines].join('\n');
+    const cut = hookCutText(p);
+    return [...header, ...lines, ...(cut ? ['', '', 'СБОРКА ХУКОВ', '', cut] : [])].join('\n');
   }
 
   if (format === 'md') {
@@ -3612,7 +3710,8 @@ function buildExport(p, format, opts) {
       return `- [${n.done ? 'x' : ' '}] **${time}**${type} — ${body}`;
     });
     const header = opts.header ? [`# ${p.title}`, '', ...(p.url ? [`Видео: ${p.url}`, ''] : [])] : [];
-    return [...header, ...lines].join('\n');
+    const cut = hookCutText(p);
+    return [...header, ...lines, ...(cut ? ['', '## Сборка хуков', '', cut] : [])].join('\n');
   }
 
   if (format === 'csv') {
@@ -3646,6 +3745,16 @@ function buildExport(p, format, opts) {
       ...(n.shapes ? { marks: n.shapes, marksText: n.shapes.map(describeShape) } : {}),
       ...(n.shot ? { shot: shotName(n, i) } : {}),
     })),
+    ...(cutNotes(p).length ? {
+      hookCut: hookSegs(cutNotes(p), p).map((g, k) => ({
+        order: k + 1,
+        start: fmt(g.s, { ms: true, hours: true }),
+        end: fmt(g.e, { ms: true, hours: true }),
+        startSeconds: +g.s.toFixed(3),
+        endSeconds: +g.e.toFixed(3),
+        text: hookText(cutNotes(p)[k]),
+      })),
+    } : {}),
   }, null, 2);
 }
 
@@ -3790,10 +3899,28 @@ h1{margin:6px 0 12px;font-size:22px;line-height:1.2}
 .marks{margin:8px 0 0;padding-left:18px;color:#888898;font-size:13px}
 footer{margin-top:30px;color:#888898;font-size:12.5px}
 .desc{margin:0 0 22px;padding:16px 18px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#161622}
+.hooks{margin:26px 0 0}.hooks h2{margin:0 0 6px;font-size:17px}.hooks ol{margin:0;padding:0;list-style:none}
+.hooks li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 6px;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-left:4px solid var(--c,#888);border-radius:10px;background:#161622;break-inside:avoid}
+.hooks li p{flex-basis:100%;margin:0;white-space:pre-wrap}
 .desc h2{margin:0 0 8px;font-size:15px;color:#c8c8d8}.desc p{margin:0;white-space:pre-wrap}.desc ul{margin:10px 0 0;padding-left:18px;font-size:13.5px}.desc a{color:#8ea0ff;word-break:break-all}
-@media (prefers-color-scheme:light){.flt{background:#f5f5fa;border-bottom-color:rgba(0,0,0,.1)}.flt label,.flt .sep{border-color:rgba(0,0,0,.14)}.flt .sep{background:rgba(0,0,0,.14)}.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
-@media print{.flt,.tk{display:none}body{background:#fff;color:#111}.facts,.item{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
+@media (prefers-color-scheme:light){.flt{background:#f5f5fa;border-bottom-color:rgba(0,0,0,.1)}.flt label,.flt .sep{border-color:rgba(0,0,0,.14)}.flt .sep{background:rgba(0,0,0,.14)}.desc{background:#fff;border-color:rgba(0,0,0,.1)}.desc h2{color:#3f3f52}.desc a{color:#000dc3}body{background:#f5f5fa;color:#101018}.hooks li{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts{background:#fff;border-color:#101018}.item{background:#fff;border-top-color:rgba(0,0,0,.1);border-right-color:rgba(0,0,0,.1);border-bottom-color:rgba(0,0,0,.1)}.facts dt,.num,.dur,.marks,footer{color:#686878}.brand,.facts a,.tc{color:#000dc3}.ok{color:#1f9d5c}}
+@media print{.flt,.tk{display:none}body{background:#fff;color:#111}.facts,.item,.hooks li{background:#fff}.facts{border-color:#ccc}.facts dt,.num,.dur,.marks,footer{color:#666}.facts a,.tc{color:#000dc3}}
 `;
+
+/** Раздел отчёта «Сборка хуков»: куски по порядку склейки, с точными таймкодами */
+function reportHooksHTML(p, hours) {
+  const list = cutNotes(p);
+  if (!list.length) return '';
+  const tc = (sec) => fmt(sec, { ms: true, hours });
+  const pad = hookCut(p).pad;
+  const rows = hookSegs(list, p).map((g, k) => {
+    const t = hookText(list[k]);
+    return `<li style="--c:${hookColor(list[k])}"><span class="num">${k + 1}</span><span class="tc">${tc(g.s)} – ${tc(g.e)}</span><span class="dur">${segLen(g).toFixed(1)} с</span>${t ? `<p>${esc(t)}</p>` : ''}</li>`;
+  }).join('');
+  return `<section class="hooks"><h2>Сборка хуков · ${esc(cutSummary(p))}</h2>
+<p class="how">Отдельный ролик: склеить куски подряд в этом порядке. Таймкоды — от начала исходника${pad ? `, запас ±${String(pad).replace('.', ',')} с уже учтён` : ''}.</p>
+<ol>${rows}</ol></section>`;
+}
 
 /** Отчёт для монтажёра. img(n, i) — откуда брать кадр: data URL (один файл) или shots/… (архив) */
 function buildReport(p, opts, img = (n) => shots.cache.get(n.id)) {
@@ -3836,6 +3963,7 @@ ${p.desc || sourceList(p).length ? `<section class="desc"><h2>Описание �
 <p class="how">Таймкоды — от начала файла. Цветная полоска слева — тип правки${notes.some((n) => n.shot) ? ', на кадрах обведено место, о котором речь' : ''}. Галочкой отмечай сделанное — отметки запомнятся в этом браузере.</p>
 ${filterBar}
 ${items}
+${reportHooksHTML(p, hours)}
 <footer>Собрано ${esc(date)} в Video Notes</footer>
 </main>
 <script>
@@ -3992,6 +4120,55 @@ async function downloadZip(p, opts) {
   toast(`Архив готов: ${notesWord(notes.length)}, ${files.length - 3} ${plural(files.length - 3, ['кадр', 'кадра', 'кадров'])}`, { kind: 'ok' });
 }
 
+/* ---------- сохранение по шагам: правки → сборка хуков → отчёт ---------- */
+
+const hookNotes = (p = state.project) => p.notes.filter((n) => isHookType(n.type) && n.end !== null);
+
+function cutSummary(p = state.project) {
+  const list = cutNotes(p);
+  const total = hookSegs(list, p).reduce((a, g) => a + segLen(g), 0);
+  return `${list.length} ${plural(list.length, ['кусок', 'куска', 'кусков'])} · ${secs(total)}`;
+}
+
+/** «Сохранить»: есть хуки — сначала спрашиваем, собрать ли из них ролик; нет — сразу отчёт */
+function saveFlow() {
+  const p = state.project;
+  if (!p) return;
+  if (el.hooksDialog.open) return toReport();
+  if (el.exportDialog.open || el.hooksAskDialog.open) return;
+  const hooks = hookNotes(p).length;
+  if (!p.notes.length || !hooks || !player.mode) return openExport();
+  const has = cutNotes(p).length > 0;
+  el.hooksAskTitle.textContent = has ? 'Нарезка хуков готова?' : 'Сначала собрать хуки?';
+  el.hooksAskText.innerHTML = has
+    ? `В нарезке <b>${cutSummary(p)}</b>. Она войдёт в отчёт отдельным разделом — можно поправить её перед сохранением.`
+    : `В правках <b>${hooks} ${plural(hooks, ['хук', 'хука', 'хуков'])}</b>. Склей из них ролик — нарезка войдёт в отчёт отдельным разделом, с порядком кусков и таймкодами.`;
+  el.hooksAskStep.classList.toggle('done', has);
+  const btns = [
+    `<button class="btn ${has ? '' : 'btn-primary'}" data-go="hooks">${has ? 'Поправить нарезку' : 'Собрать хуки'}</button>`,
+    `<button class="btn ${has ? 'btn-primary' : ''}" data-go="report">${has ? 'В отчёт' : 'Сразу в отчёт'}</button>`,
+  ];
+  el.hooksAskActions.innerHTML = (has ? btns.reverse() : btns).join('');
+  el.hooksAskDialog.showModal();
+  $('.btn-primary', el.hooksAskActions).focus();
+}
+
+function toReport() {
+  el.hooksDialog.close();
+  openExport();
+}
+
+/** В окне сохранения — что с нарезкой и как к ней вернуться */
+function renderExportHooks() {
+  const p = state.project;
+  const hooks = hookNotes(p).length;
+  const has = cutNotes(p).length > 0;
+  el.exportHooksRow.hidden = !hooks && !has;
+  el.exportHooksText.textContent = has ? `${cutSummary(p)} — в отчёте отдельным разделом` : 'Не собрана';
+  el.exportHooksBtn.textContent = has ? 'Изменить' : 'Собрать';
+  el.exportHooksBtn.hidden = !player.mode;
+}
+
 function openExport() {
   const p = state.project;
   if (!p) return;
@@ -4018,6 +4195,7 @@ function openExport() {
   if (p.kind === 'file' && !p.path && state.settings.lastDir) p.path = `${state.settings.lastDir}/${p.name}`;
   el.optPath.value = p.path || '';
   el.exportShareBtn.disabled = typeof CompressionStream === 'undefined';
+  renderExportHooks();
   el.exportDialog.showModal();
   updateExportPreview();
 }
@@ -4495,7 +4673,23 @@ function bind() {
   });
 
   // Шапка
-  el.exportBtn.addEventListener('click', openExport);
+  el.exportBtn.addEventListener('click', saveFlow);
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-hist]');
+    if (b) histStep(b.dataset.hist === 'undo' ? -1 : 1);
+  });
+  el.hooksAskActions.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]')?.dataset.go;
+    if (!go) return;
+    el.hooksAskDialog.close();
+    if (go === 'hooks') openHooks();
+    else openExport();
+  });
+  el.hkNextStepBtn.addEventListener('click', toReport);
+  el.exportHooksBtn.addEventListener('click', () => {
+    el.exportDialog.close();
+    openHooks();
+  });
   el.libraryBtn.addEventListener('click', () => { renderLibrary(); el.libraryDialog.showModal(); });
   el.recentAllBtn.addEventListener('click', () => { renderLibrary(); el.libraryDialog.showModal(); });
   el.hotkeysBtn.addEventListener('click', () => el.hotkeysDialog.showModal());
@@ -4824,7 +5018,6 @@ function bind() {
   el.copyAllBtn.addEventListener('click', () => copyAll());
 
   // Сборка хуков
-  el.hooksBtn.addEventListener('click', openHooks);
   el.hooksDialog.addEventListener('close', unmountHookPlayer);
   el.hkScope.addEventListener('click', (e) => {
     const b = e.target.closest('[data-scope]');
@@ -5126,7 +5319,19 @@ function digitOf(e) {
 }
 
 function onHotkey(e) {
-  if ($$('dialog[open]').length) return;
+  if ($$('dialog[open]').length) {
+    // В сборке хуков и в окне сохранения работают отмена/повтор, а ⌘S из сборки ведёт дальше — в отчёт
+    const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || typing || !state.project || !(el.hooksDialog.open || el.exportDialog.open) || el.hooksAskDialog.open) return;
+    if (e.code === 'KeyZ' || e.code === 'KeyY') {
+      e.preventDefault();
+      histStep(e.code === 'KeyY' || e.shiftKey ? 1 : -1);
+    } else if (e.code === 'KeyS' && !e.shiftKey && el.hooksDialog.open && !el.exportDialog.open) {
+      e.preventDefault();
+      toReport();
+    }
+    return;
+  }
   if (draw.active) {
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
     if (e.code === 'Escape') { e.preventDefault(); closeDraw(); return; }
@@ -5146,12 +5351,19 @@ function onHotkey(e) {
   }
   if (!ready) return;
 
+  // В полях ввода ⌘Z — родная отмена набора; вне полей — шаг по истории правок
+  if (mod && !e.altKey && !inField && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+    e.preventDefault();
+    histStep(e.code === 'KeyY' || e.shiftKey ? 1 : -1);
+    return;
+  }
+
   if (mod && !e.altKey && !e.shiftKey) {
     if (e.code === 'KeyP') { e.preventDefault(); player.toggle(); return; }
     if (e.code === 'ArrowLeft') { e.preventDefault(); player.seek(player.time() - 1); return; }
     if (e.code === 'ArrowRight') { e.preventDefault(); player.seek(player.time() + 1); return; }
     if (e.code === 'Enter' && e.target === el.noteInput) { e.preventDefault(); addNote(); return; }
-    if (e.code === 'KeyS') { e.preventDefault(); openExport(); return; }
+    if (e.code === 'KeyS') { e.preventDefault(); saveFlow(); return; }
     return;
   }
 
@@ -5176,7 +5388,7 @@ function onHotkey(e) {
     KeyN: () => focusNote(),
     KeyI: () => markIn(),
     KeyO: () => markOut(),
-    KeyE: () => openExport(),
+    KeyE: () => saveFlow(),
     KeyD: () => openDraw(),
     KeyR: () => toggleReading(),
     KeyH: () => openHooks(),
